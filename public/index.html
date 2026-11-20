@@ -117,6 +117,7 @@
       align-items: center;
       justify-content: center;
       padding: 0;
+      flex-shrink: 0;
     }
 
     .icon-btn.active {
@@ -573,22 +574,77 @@
     }
 
     .g-rule-title {
-      font-size: 18px;
+      font-size: 19px;
       font-weight: 700;
       letter-spacing: -0.02em;
       line-height: 1.3;
     }
 
+    .g-subhead {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .g-usage-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .g-usage-list li {
+      position: relative;
+      padding-left: 16px;
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--text);
+    }
+
+    .g-usage-list li::before {
+      content: "•";
+      position: absolute;
+      left: 2px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .g-blocks {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .g-rule-block {
+      padding: 14px;
+      border-radius: 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .g-block-heading {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
     .g-formula {
       display: inline-block;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 600;
-      background: var(--surface-muted);
+      background: var(--surface);
       color: var(--text);
-      padding: 6px 11px;
-      border-radius: 10px;
+      padding: 5px 10px;
+      border-radius: 8px;
       border: 1px solid var(--border);
+      line-height: 1.45;
     }
 
     .g-summary {
@@ -600,7 +656,7 @@
     .g-examples {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
     .g-example-row {
@@ -608,9 +664,9 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: var(--bg);
+      padding: 9px 11px;
+      border-radius: 11px;
+      background: var(--surface);
       border: 1px solid var(--border);
     }
 
@@ -626,14 +682,61 @@
       margin-top: 2px;
     }
 
-    .g-tip {
-      font-size: 13px;
-      line-height: 1.5;
-      padding: 10px 12px;
+    .g-markers {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .g-marker-pill {
+      font-size: 12.5px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .g-mistakes {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .g-mistake-row {
+      padding: 11px 13px;
       border-radius: 12px;
       background: var(--warn-bg);
       border: 1px solid var(--warn-border);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .g-mistake-wrong {
+      color: var(--danger);
+      text-decoration: line-through;
+      font-size: 13.5px;
+    }
+
+    .g-mistake-right-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .g-mistake-right {
+      color: var(--success);
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .g-mistake-exp {
       color: var(--warn);
+      font-size: 13px;
     }
 
     .g-progress-row {
@@ -1605,7 +1708,7 @@
       ]
     };
 
-    let currentMode = 'chat'; // 'chat' | 'reading' | 'grammar'
+    let currentMode = 'chat';
     let readingLoadedOnce = false;
     let isReadingBusy = false;
     let readingSpeed = 1.0;
@@ -1768,7 +1871,7 @@
           <div class="g-card" style="text-align:center; padding:28px 20px;">
             <div style="font-size:15px; font-weight:600;">Выберите тему выше или впишите свою</div>
             <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
-              Echo коротко объяснит правило под уровень <strong>${escapeHtml(lvl)}</strong>, приведёт примеры и даст 5 интерактивных заданий с разбором ошибок.
+              Echo подробно разберёт всю тему под уровень <strong>${escapeHtml(lvl)}</strong> (утверждения, отрицания, вопросы, исключения и частые ошибки) и даст 5 заданий с проверкой.
             </div>
           </div>
         `;
@@ -1788,7 +1891,7 @@
       grammarStartBtn.disabled = true;
       grammarStartBtn.textContent = 'Готовим...';
 
-      grammarContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo готовит правило и задания по теме «${escapeHtml(cleanTopic)}»...</div>`;
+      grammarContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo готовит подробный разбор и задания по теме «${escapeHtml(cleanTopic)}»...</div>`;
 
       try {
         const res = await fetch('/api/chat', {
@@ -1838,37 +1941,91 @@
       if (!grammarLesson) return;
       grammarContent.innerHTML = '';
 
-      // 1. Карточка правила от ИИ
+      // 1. Подробный теоретический блок
       const ruleCard = document.createElement('div');
       ruleCard.className = 'g-card';
 
-      const examplesHtml = (grammarLesson.examples || []).map(ex => `
-        <div class="g-example-row">
+      const usageHtml = (grammarLesson.whenToUseRu && grammarLesson.whenToUseRu.length > 0)
+        ? `
           <div>
-            <div class="g-example-en">${renderClickableText(ex.en)}</div>
-            <div class="g-example-ru">${escapeHtml(ex.ru)}</div>
+            <div class="g-subhead">Когда используется</div>
+            <ul class="g-usage-list">
+              ${grammarLesson.whenToUseRu.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
           </div>
-          <button type="button" class="icon-btn g-play-ex" data-text="${escapeHtml(ex.en)}" title="Прослушать">▶</button>
-        </div>
-      `).join('');
+        `
+        : '';
+
+      const sectionsHtml = (grammarLesson.sections || []).map(sec => {
+        const exHtml = (sec.examples || []).map(ex => `
+          <div class="g-example-row">
+            <div>
+              <div class="g-example-en">${renderClickableText(ex.en)}</div>
+              <div class="g-example-ru">${escapeHtml(ex.ru)}</div>
+            </div>
+            <button type="button" class="icon-btn g-play-ex" data-text="${escapeHtml(ex.en)}" title="Прослушать">▶</button>
+          </div>
+        `).join('');
+
+        return `
+          <div class="g-rule-block">
+            ${sec.headingRu ? `<div class="g-block-heading">${escapeHtml(sec.headingRu)}</div>` : ''}
+            ${sec.formula ? `<div><span class="g-formula">${escapeHtml(sec.formula)}</span></div>` : ''}
+            ${sec.explanationRu ? `<div class="g-summary">${escapeHtml(sec.explanationRu)}</div>` : ''}
+            ${exHtml ? `<div class="g-examples">${exHtml}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+
+      const markersHtml = (grammarLesson.markers && grammarLesson.markers.length > 0)
+        ? `
+          <div>
+            <div class="g-subhead">Слова-маркеры и ориентиры</div>
+            <div class="g-markers">
+              ${grammarLesson.markers.map(m => `<span class="g-marker-pill">${escapeHtml(m)}</span>`).join('')}
+            </div>
+          </div>
+        `
+        : '';
+
+      const mistakesHtml = (grammarLesson.commonMistakes && grammarLesson.commonMistakes.length > 0)
+        ? `
+          <div>
+            <div class="g-subhead">Частые ошибки</div>
+            <div class="g-mistakes">
+              ${grammarLesson.commonMistakes.map(m => `
+                <div class="g-mistake-row">
+                  <div class="g-mistake-wrong">✕ ${escapeHtml(m.wrongEn)}</div>
+                  <div class="g-mistake-right-wrap">
+                    <span class="g-mistake-right">✓ ${renderClickableText(m.rightEn)}</span>
+                    <button type="button" class="icon-btn g-play-ex" style="width:28px; height:28px; font-size:11px;" data-text="${escapeHtml(m.rightEn)}" title="Прослушать">▶</button>
+                  </div>
+                  ${m.explanationRu ? `<div class="g-mistake-exp">${escapeHtml(m.explanationRu)}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `
+        : '';
 
       ruleCard.innerHTML = `
         <div class="g-rule-head">
           <div class="g-rule-title">${escapeHtml(grammarLesson.topicTitle)}</div>
-          <button type="button" id="toggleRuleBtn" class="chip-btn">${grammarRuleCollapsed ? 'Показать правило' : 'Свернуть правило'}</button>
+          <button type="button" id="toggleRuleBtn" class="chip-btn">${grammarRuleCollapsed ? 'Показать теорию' : 'Свернуть теорию'}</button>
         </div>
-        <div id="ruleBody" style="display:${grammarRuleCollapsed ? 'none' : 'flex'}; flex-direction:column; gap:12px;">
-          ${grammarLesson.formula ? `<div><span class="g-formula">${escapeHtml(grammarLesson.formula)}</span></div>` : ''}
-          <div class="g-summary">${escapeHtml(grammarLesson.summaryRu)}</div>
-          ${examplesHtml ? `<div class="g-examples">${examplesHtml}</div>` : ''}
-          ${grammarLesson.tipRu ? `<div class="g-tip"><strong>На что обратить внимание:</strong> ${escapeHtml(grammarLesson.tipRu)}</div>` : ''}
+        <div id="ruleBody" style="display:${grammarRuleCollapsed ? 'none' : 'flex'}; flex-direction:column; gap:16px;">
+          ${usageHtml}
+          ${sectionsHtml ? `<div><div class="g-subhead">Правила и примеры</div><div class="g-blocks">${sectionsHtml}</div></div>` : ''}
+          ${markersHtml}
+          ${mistakesHtml}
+          <div class="reading-legend" style="padding-top:8px;">Нажмите на любое английское слово в примерах, чтобы перевести и сохранить его в словарь.</div>
         </div>
       `;
 
       ruleCard.querySelector('#toggleRuleBtn').addEventListener('click', () => {
         grammarRuleCollapsed = !grammarRuleCollapsed;
         ruleCard.querySelector('#ruleBody').style.display = grammarRuleCollapsed ? 'none' : 'flex';
-        ruleCard.querySelector('#toggleRuleBtn').textContent = grammarRuleCollapsed ? 'Показать правило' : 'Свернуть правило';
+        ruleCard.querySelector('#toggleRuleBtn').textContent = grammarRuleCollapsed ? 'Показать теорию' : 'Свернуть теорию';
       });
 
       ruleCard.querySelectorAll('.g-play-ex').forEach(btn => {
@@ -1878,8 +2035,8 @@
       ruleCard.addEventListener('click', (e) => {
         const w = e.target.closest('.clickable-word');
         if (!w) return;
-        const row = w.closest('.g-example-row');
-        const ctx = row ? row.querySelector('.g-example-en').textContent : '';
+        const container = w.closest('.g-example-en, .g-mistake-right');
+        const ctx = container ? container.textContent.replace(/^✓\s*/, '') : '';
         openQuickSave(w.dataset.word, ctx);
       });
 
@@ -1898,7 +2055,7 @@
       askCard.innerHTML = `
         <div style="font-size:14px; font-weight:700;">Остались вопросы по этой теме?</div>
         <form id="grammarAskForm" class="reading-bar">
-          <input id="grammarAskInput" class="field-input" type="text" placeholder="Например: почему здесь нельзя сказать did?" required />
+          <input id="grammarAskInput" class="field-input" type="text" placeholder="Например: когда пишется -es вместо -s?" required />
           <button id="grammarAskBtn" type="submit" class="primary-btn">Спросить</button>
         </form>
         <div id="grammarAskResult"></div>
@@ -1941,7 +2098,7 @@
             <div class="g-ask-answer">
               <div>${escapeHtml(data.answerRu)}</div>
               ${data.exampleEn ? `
-                <div class="g-example-row" style="background:var(--surface);">
+                <div class="g-example-row">
                   <div>
                     <div class="g-example-en">${renderClickableText(data.exampleEn)}</div>
                     <div class="g-example-ru">${escapeHtml(data.exampleRu)}</div>
@@ -1996,7 +2153,7 @@
       }
 
       const ex = list[grammarIndex];
-      const progressPct = Math.round(((grammarIndex) / total) * 100);
+      const progressPct = Math.round((grammarIndex / total) * 100);
       const sentenceHtml = escapeHtml(ex.sentence).replace('___', '<span id="gBlankSpan" class="g-blank">___</span>');
 
       container.innerHTML = `
