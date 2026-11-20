@@ -267,19 +267,23 @@ export default async function handler(req, res) {
 
       const trPrompt = `
 Translate the English word or phrase "${cleanWord}" into Russian${cleanCtx ? ` as used in the sentence: "${cleanCtx}"` : ''}.
-Return ONLY valid JSON:
-{
-  "translation": "concise Russian translation (1-3 words or short phrase)",
-  "note": "very short usage note or short example in Russian/English (max 12 words, or empty string)"
-}
+Give a concise Russian translation (1-3 words) and a very short usage note or example (max 10 words, or empty string).
 `.trim();
 
       const buildTrPayload = (thinkingConfig) => ({
         contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 180,
+          maxOutputTokens: 250,
           responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              translation: { type: 'STRING' },
+              note: { type: 'STRING' }
+            },
+            required: ['translation', 'note']
+          },
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
       });
@@ -319,86 +323,100 @@ Write ${chosenStyle} in English strictly adapted for a Russian learner at level:
 Topic: "${finalTopic}".
 
 Requirements:
-- Write 2 or 3 short paragraphs (total 7 to 10 natural sentences).
+- Write 2 or 3 short paragraphs (total 6 to 9 natural sentences).
 - Use vocabulary and grammar appropriate for ${level}, including a few useful everyday words worth learning.
-- Split every paragraph into individual sentences, and provide a natural, accurate Russian translation for EVERY sentence.
+- For each sentence, include its paragraph number in "p" (1, 2, or 3), the English sentence in "en", and an accurate, natural Russian translation in "ru".
 - No markdown, no emojis.
-
-Return ONLY valid JSON in this exact format:
-{
-  "titleEn": "Short catchy title in English",
-  "titleRu": "Russian translation of the title",
-  "paragraphs": [
-    [
-      { "en": "First English sentence.", "ru": "Первое предложение на русском." },
-      { "en": "Second English sentence.", "ru": "Второе предложение на русском." }
-    ],
-    [
-      { "en": "First sentence of paragraph two.", "ru": "Первое предложение второго абзаца." }
-    ]
-  ]
-}
 `.trim();
+
+      const readingSchema = {
+        type: 'OBJECT',
+        properties: {
+          titleEn: { type: 'STRING' },
+          titleRu: { type: 'STRING' },
+          sentences: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                p: { type: 'INTEGER' },
+                en: { type: 'STRING' },
+                ru: { type: 'STRING' }
+              },
+              required: ['p', 'en', 'ru']
+            }
+          }
+        },
+        required: ['titleEn', 'titleRu', 'sentences']
+      };
 
       const buildReadPayload = (thinkingConfig) => ({
         contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
         generationConfig: {
-          temperature: 0.9,
-          maxOutputTokens: 1400,
+          temperature: 0.75,
+          maxOutputTokens: 2400,
           responseMimeType: 'application/json',
+          responseSchema: readingSchema,
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
       });
 
       const attempts = [
-        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 17000 },
-        { model: 'gemini-3.8-flash', thinking: null, timeout: 10000 }
+        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 14000 },
+        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 12000 }
       ];
 
-      let result = null;
       const errors = [];
 
       for (const attempt of attempts) {
-        result = await callGemini(apiKey, attempt.model, buildReadPayload(attempt.thinking), attempt.timeout);
+        let result = await callGemini(apiKey, attempt.model, buildReadPayload(attempt.thinking), attempt.timeout);
         if (!result.ok && result.status === 400 && attempt.thinking) {
           result = await callGemini(apiKey, attempt.model, buildReadPayload(null), attempt.timeout);
         }
-        if (result.ok) break;
-        errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
+
+        if (!result.ok) {
+          errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
+          continue;
+        }
+
+        try {
+          const parts = result.data?.candidates?.[0]?.content?.parts || [];
+          const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+          const parsed = extractJson(textPart?.text || '');
+
+          const rawSentences = Array.isArray(parsed.sentences) ? parsed.sentences : [];
+          const groupedMap = new Map();
+
+          for (const s of rawSentences) {
+            if (!s || typeof s.en !== 'string' || !s.en.trim()) continue;
+            const pNum = Number.isFinite(Number(s.p)) ? Number(s.p) : 1;
+            if (!groupedMap.has(pNum)) groupedMap.set(pNum, []);
+            groupedMap.get(pNum).push({
+              en: s.en.trim(),
+              ru: String(s.ru || '').trim()
+            });
+          }
+
+          const cleanParagraphs = Array.from(groupedMap.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([, list]) => list)
+            .filter(list => list.length > 0);
+
+          if (cleanParagraphs.length > 0) {
+            return res.status(200).json({
+              titleEn: String(parsed.titleEn || finalTopic).trim(),
+              titleRu: String(parsed.titleRu || '').trim(),
+              paragraphs: cleanParagraphs
+            });
+          }
+          errors.push('пустой список предложений');
+        } catch (parseErr) {
+          errors.push('ошибка разбора JSON');
+        }
       }
 
-      if (!result || !result.ok) {
-        return res.status(502).json({
-          error: 'Не удалось создать текст. Детали: ' + errors.join(' | ')
-        });
-      }
-
-      const parts = result.data?.candidates?.[0]?.content?.parts || [];
-      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-      const parsed = extractJson(textPart?.text || '{}');
-
-      let paragraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
-      if (paragraphs.length === 0 && Array.isArray(parsed.sentences)) {
-        paragraphs = [parsed.sentences];
-      }
-
-      // Нормализуем структуру абзацев и предложений
-      const cleanParagraphs = paragraphs
-        .map(p => (Array.isArray(p) ? p : [p]))
-        .map(p => p.filter(s => s && typeof s.en === 'string' && s.en.trim()).map(s => ({
-          en: s.en.trim(),
-          ru: String(s.ru || '').trim()
-        })))
-        .filter(p => p.length > 0);
-
-      if (cleanParagraphs.length === 0) {
-        return res.status(502).json({ error: 'ИИ вернул пустой текст. Попробуйте нажать ещё раз.' });
-      }
-
-      return res.status(200).json({
-        titleEn: String(parsed.titleEn || finalTopic).trim(),
-        titleRu: String(parsed.titleRu || '').trim(),
-        paragraphs: cleanParagraphs
+      return res.status(502).json({
+        error: 'Не удалось создать текст, попробуйте нажать «Новый текст» ещё раз. (' + errors.join(' | ') + ')'
       });
     }
 
@@ -413,23 +431,25 @@ Student level: ${levelDesc}
 Topic: "${topic}"
 Opening scenario: ${chosenSeed}
 
-Write a fresh, natural opening message in English (1-2 short sentences ending with an engaging question).
+Write a fresh, natural opening message in English (1-2 short sentences ending with an engaging question) and its natural Russian translation.
 Avoid cliché openings like "Hi! I am Echo. How are you today?" — jump right into the vibe of the scenario!
 No markdown or emojis.
-
-Return ONLY valid JSON:
-{
-  "replyEn": "your opening line in English",
-  "replyRu": "natural Russian translation"
-}
 `.trim();
 
       const buildStartPayload = (thinkingConfig) => ({
         contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
         generationConfig: {
           temperature: 1.0,
-          maxOutputTokens: 250,
+          maxOutputTokens: 300,
           responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              replyEn: { type: 'STRING' },
+              replyRu: { type: 'STRING' }
+            },
+            required: ['replyEn', 'replyRu']
+          },
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
       });
@@ -482,15 +502,10 @@ You are Echo, a friendly spoken English tutor for Russian-speaking learners.
 Student level: ${levelDesc}
 Topic: "${topic}".
 
-Return ONLY a valid JSON object with these exact 6 keys:
-{
-  "userTranscript": "exact English transcription of what the student said",
-  "hasErrors": true or false,
-  "correction": "natural corrected English sentence if hasErrors is true, else empty string",
-  "explanationRu": "short friendly explanation in Russian (1-2 sentences) if hasErrors is true, else short praise in Russian",
-  "replyEn": "natural conversational reply in English (1-2 short sentences + a light follow-up question, no markdown or emojis)",
-  "replyRu": "natural Russian translation of replyEn"
-}
+On every message:
+1. Transcribe accurately what the student said in English in "userTranscript".
+2. If there are grammar, word choice, or phrasing mistakes, set "hasErrors": true, give a natural corrected version in "correction", and explain briefly in Russian (1-2 sentences) in "explanationRu". Otherwise set "hasErrors": false, "correction": "", and write short praise in Russian in "explanationRu".
+3. Reply naturally in English in "replyEn" (1-2 short sentences + a light follow-up question, no markdown or emojis) and translate it into Russian in "replyRu".
 `.trim();
 
     const contents = [];
@@ -515,10 +530,10 @@ Return ONLY a valid JSON object with these exact 6 keys:
     const userParts = [];
     if (audioBase64) {
       const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
-      userParts.push({ text: 'Listen to the student audio, transcribe it, check for mistakes, and respond in JSON.' });
+      userParts.push({ text: 'Listen to the student audio, transcribe it, check for mistakes, and respond.' });
       userParts.push({ inline_data: { mime_type: cleanMime, data: audioBase64 } });
     } else {
-      userParts.push({ text: `Student message: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond in JSON.` });
+      userParts.push({ text: `Student message: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond.` });
     }
 
     contents.push({ role: 'user', parts: userParts });
@@ -528,8 +543,20 @@ Return ONLY a valid JSON object with these exact 6 keys:
       contents,
       generationConfig: {
         temperature: 0.8,
-        maxOutputTokens: 600,
+        maxOutputTokens: 700,
         responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            userTranscript: { type: 'STRING' },
+            hasErrors: { type: 'BOOLEAN' },
+            correction: { type: 'STRING' },
+            explanationRu: { type: 'STRING' },
+            replyEn: { type: 'STRING' },
+            replyRu: { type: 'STRING' }
+          },
+          required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyEn', 'replyRu']
+        },
         ...(thinkingConfig ? { thinkingConfig } : {})
       }
     });
