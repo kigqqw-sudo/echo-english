@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-  <title>Echo — Разговорный английский и чтение с ИИ</title>
+  <title>Echo — Английский с ИИ: диалог, чтение и грамматика</title>
   <style>
     :root {
       --bg: #fafafa;
@@ -152,7 +152,7 @@
       color: var(--text-secondary);
     }
 
-    /* Mode switcher (Диалог / Чтение) */
+    /* Mode switcher (Диалог / Чтение / Грамматика) */
     .mode-bar {
       padding: 8px 16px;
       background: var(--bg);
@@ -162,12 +162,12 @@
 
     .mode-tabs {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 4px;
       background: var(--surface-muted);
       padding: 3px;
       border-radius: 12px;
-      max-width: 320px;
+      max-width: 420px;
       margin: 0 auto;
     }
 
@@ -177,7 +177,7 @@
       color: var(--text-secondary);
       font-size: 13px;
       font-weight: 600;
-      padding: 7px 12px;
+      padding: 7px 10px;
       border-radius: 9px;
       cursor: pointer;
       font-family: inherit;
@@ -372,17 +372,17 @@
       color: #9ca3af;
     }
 
-    /* Reading View */
-    .reading-view {
+    /* Reading & Grammar scrollable containers */
+    .reading-view, .grammar-view {
       display: none;
       flex: 1;
       overflow-y: auto;
-      padding: 18px 16px 32px;
+      padding: 18px 16px 36px;
       flex-direction: column;
       gap: 16px;
     }
 
-    .reading-view.active { display: flex; }
+    .reading-view.active, .grammar-view.active { display: flex; }
 
     .reading-bar {
       display: flex;
@@ -395,7 +395,7 @@
       min-width: 0;
     }
 
-    .reading-card {
+    .reading-card, .g-card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 20px;
@@ -449,9 +449,7 @@
       color: var(--text);
     }
 
-    .sentence-unit {
-      display: inline;
-    }
+    .sentence-unit { display: inline; }
 
     .sentence-tools {
       display: inline-flex;
@@ -527,6 +525,268 @@
       padding-top: 10px;
       border-top: 1px solid var(--surface-muted);
       line-height: 1.5;
+    }
+
+    /* Grammar View styles */
+    .g-section-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .g-topic-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .g-topic-chip {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 7px 13px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+
+    .g-topic-chip:hover {
+      border-color: #d1d5db;
+      background: #f9fafb;
+    }
+
+    .g-topic-chip.selected {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .g-rule-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .g-rule-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+    }
+
+    .g-formula {
+      display: inline-block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--surface-muted);
+      color: var(--text);
+      padding: 6px 11px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .g-summary {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+
+    .g-examples {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .g-example-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+
+    .g-example-en {
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.45;
+    }
+
+    .g-example-ru {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .g-tip {
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      color: var(--warn);
+    }
+
+    .g-progress-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .g-progress-bar {
+      height: 5px;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      overflow: hidden;
+    }
+
+    .g-progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.25s ease;
+    }
+
+    .g-prompt {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .g-sentence {
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    .g-blank {
+      display: inline-block;
+      min-width: 64px;
+      border-bottom: 2px solid var(--accent);
+      text-align: center;
+      padding: 0 6px;
+      color: var(--accent);
+    }
+
+    .g-blank.ok {
+      color: var(--success);
+      border-bottom-color: var(--success);
+    }
+
+    .g-blank.bad {
+      color: var(--danger);
+      border-bottom-color: var(--danger);
+    }
+
+    .g-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .g-opt-btn {
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    .g-opt-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: var(--bg);
+    }
+
+    .g-opt-btn.correct {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .g-opt-btn.wrong {
+      background: var(--danger-bg);
+      border-color: var(--danger-border);
+      color: var(--danger);
+    }
+
+    .g-opt-btn:disabled { cursor: default; }
+
+    .g-input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .g-input-row .field-input { flex: 1; }
+
+    .g-feedback-box {
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid;
+      font-size: 13px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: fadeIn 0.15s ease-out;
+    }
+
+    .g-feedback-box.ok {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success);
+    }
+
+    .g-feedback-box.bad {
+      background: var(--danger-bg);
+      border-color: var(--danger-border);
+      color: var(--danger);
+    }
+
+    .g-feedback-sent {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      padding-top: 4px;
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .g-feedback-tr {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .g-ask-answer {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      font-size: 14px;
+      line-height: 1.55;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
     /* User audio + transcript */
@@ -1061,10 +1321,11 @@
     .toast.show { opacity: 1; }
 
     @media (max-width: 520px) {
-      .add-row { grid-template-columns: 1fr; }
+      .add-row, .g-options { grid-template-columns: 1fr; }
       select { max-width: 112px; }
-      .reading-card { padding: 16px; }
+      .reading-card, .g-card { padding: 16px; }
       .reading-paragraph { font-size: 15px; }
+      .g-sentence { font-size: 16px; }
     }
   </style>
 </head>
@@ -1097,7 +1358,7 @@
         <button id="autoPlayBtn" class="icon-btn active" title="Автоозвучка ответов">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
         </button>
-        <button id="restartBtn" class="icon-btn" title="Обновить диалог или текст">
+        <button id="restartBtn" class="icon-btn" title="Обновить текущую вкладку">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
         </button>
       </div>
@@ -1107,6 +1368,7 @@
       <div class="mode-tabs">
         <button type="button" id="modeChatBtn" class="mode-tab active">Диалог</button>
         <button type="button" id="modeReadingBtn" class="mode-tab">Чтение</button>
+        <button type="button" id="modeGrammarBtn" class="mode-tab">Грамматика</button>
       </div>
     </div>
 
@@ -1120,6 +1382,19 @@
         <button id="genReadingBtn" type="submit" class="primary-btn">Новый текст</button>
       </form>
       <div id="readingContent"></div>
+    </section>
+
+    <!-- Вкладка 3: Грамматика и задания -->
+    <section id="grammarView" class="grammar-view">
+      <div>
+        <div id="grammarTopicsLabel" class="g-section-label">Темы грамматики для уровня B1</div>
+        <div id="grammarTopicsChips" class="g-topic-chips"></div>
+      </div>
+      <form id="grammarCustomForm" class="reading-bar">
+        <input id="grammarCustomInput" class="field-input" type="text" placeholder="Или впишите свою тему (напр. разница for и since)..." />
+        <button id="grammarStartBtn" type="submit" class="primary-btn">Начать</button>
+      </form>
+      <div id="grammarContent"></div>
     </section>
 
     <footer id="chatFooter" class="footer">
@@ -1229,8 +1504,17 @@
     const genReadingBtn = document.getElementById('genReadingBtn');
     const readingContent = document.getElementById('readingContent');
 
+    const grammarView = document.getElementById('grammarView');
+    const grammarTopicsLabel = document.getElementById('grammarTopicsLabel');
+    const grammarTopicsChips = document.getElementById('grammarTopicsChips');
+    const grammarCustomForm = document.getElementById('grammarCustomForm');
+    const grammarCustomInput = document.getElementById('grammarCustomInput');
+    const grammarStartBtn = document.getElementById('grammarStartBtn');
+    const grammarContent = document.getElementById('grammarContent');
+
     const modeChatBtn = document.getElementById('modeChatBtn');
     const modeReadingBtn = document.getElementById('modeReadingBtn');
+    const modeGrammarBtn = document.getElementById('modeGrammarBtn');
 
     const levelSelect = document.getElementById('levelSelect');
     const topicSelect = document.getElementById('topicSelect');
@@ -1278,10 +1562,61 @@
     const vocabListEl = document.getElementById('vocabList');
     const toastEl = document.getElementById('toast');
 
-    let currentMode = 'chat'; // 'chat' | 'reading'
+    const GRAMMAR_TOPICS = {
+      A1: [
+        'Глагол to be (am/is/are)',
+        'Present Simple',
+        'Артикли a / an / the',
+        'There is / There are',
+        'Past Simple (базовый)',
+        'Предлоги in / on / at'
+      ],
+      A2: [
+        'Present Simple vs Continuous',
+        'Past Continuous',
+        'Будущее: will и going to',
+        'Present Perfect (основы)',
+        'Степени сравнения прилагательных',
+        'Модальные глаголы (can/must/should)'
+      ],
+      B1: [
+        'Present Perfect vs Past Simple',
+        'Условные предложения (1 и 2 тип)',
+        'Пассивный залог (Passive Voice)',
+        'Герундий и инфинитив (-ing / to)',
+        'Used to и Would',
+        'Косвенная речь (Reported Speech)'
+      ],
+      B2: [
+        'Past Perfect и Narrative Tenses',
+        '3rd и Mixed Conditionals',
+        'Модальные глаголы в прошлом',
+        'Relative Clauses (who/which/that)',
+        'Конструкция have something done',
+        'Wish и If only'
+      ],
+      C1: [
+        'Инверсия (Negative Inversion)',
+        'Cleft Sentences (It is... that)',
+        'Participle Clauses',
+        'Unreal Past и Subjunctive',
+        'Future Perfect и Continuous',
+        'Сложные предлоги и связки'
+      ]
+    };
+
+    let currentMode = 'chat'; // 'chat' | 'reading' | 'grammar'
     let readingLoadedOnce = false;
     let isReadingBusy = false;
     let readingSpeed = 1.0;
+
+    let isGrammarBusy = false;
+    let activeGrammarTopic = '';
+    let grammarLesson = null;
+    let grammarIndex = 0;
+    let grammarScore = 0;
+    let grammarAnswered = false;
+    let grammarRuleCollapsed = false;
 
     let history = [];
     let autoPlay = true;
@@ -1304,7 +1639,6 @@
     const MAX_SECONDS = 45;
     const VOCAB_STORAGE_KEY = 'echo_vocab_v1';
 
-    // Словарь и карточки
     let vocab = loadVocab();
     let fcQueue = [];
     let fcTotal = 0;
@@ -1382,28 +1716,404 @@
       renderVocabList();
     }
 
-    // --- Переключение вкладок Диалог / Чтение ---
+    // --- Переключение вкладок ---
     function switchMode(mode) {
       if (currentMode === mode) return;
       stopSpeech();
       if (isRecording) stopRecording(true);
 
       currentMode = mode;
-      const isChat = mode === 'chat';
+      modeChatBtn.classList.toggle('active', mode === 'chat');
+      modeReadingBtn.classList.toggle('active', mode === 'reading');
+      modeGrammarBtn.classList.toggle('active', mode === 'grammar');
 
-      modeChatBtn.classList.toggle('active', isChat);
-      modeReadingBtn.classList.toggle('active', !isChat);
-      chatEl.style.display = isChat ? 'flex' : 'none';
-      chatFooter.style.display = isChat ? 'block' : 'none';
-      readingView.classList.toggle('active', !isChat);
+      chatEl.style.display = mode === 'chat' ? 'flex' : 'none';
+      chatFooter.style.display = mode === 'chat' ? 'block' : 'none';
+      readingView.classList.toggle('active', mode === 'reading');
+      grammarView.classList.toggle('active', mode === 'grammar');
 
-      if (!isChat && !readingLoadedOnce) {
+      if (mode === 'reading' && !readingLoadedOnce) {
         generateReadingText();
+      }
+      if (mode === 'grammar') {
+        renderGrammarTopicChips();
       }
     }
 
     modeChatBtn.addEventListener('click', () => switchMode('chat'));
     modeReadingBtn.addEventListener('click', () => switchMode('reading'));
+    modeGrammarBtn.addEventListener('click', () => switchMode('grammar'));
+
+    // --- Вкладка «Грамматика» ---
+    function renderGrammarTopicChips() {
+      const lvl = levelSelect.value;
+      const topics = GRAMMAR_TOPICS[lvl] || GRAMMAR_TOPICS.B1;
+      grammarTopicsLabel.textContent = `Темы грамматики для уровня ${lvl}`;
+      grammarTopicsChips.innerHTML = '';
+
+      topics.forEach(t => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'g-topic-chip' + (activeGrammarTopic === t ? ' selected' : '');
+        btn.textContent = t;
+        btn.addEventListener('click', () => {
+          grammarCustomInput.value = '';
+          loadGrammarLesson(t);
+        });
+        grammarTopicsChips.appendChild(btn);
+      });
+
+      if (!grammarLesson && !isGrammarBusy) {
+        grammarContent.innerHTML = `
+          <div class="g-card" style="text-align:center; padding:28px 20px;">
+            <div style="font-size:15px; font-weight:600;">Выберите тему выше или впишите свою</div>
+            <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
+              Echo коротко объяснит правило под уровень <strong>${escapeHtml(lvl)}</strong>, приведёт примеры и даст 5 интерактивных заданий с разбором ошибок.
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    async function loadGrammarLesson(topicName) {
+      if (isGrammarBusy) return;
+      const cleanTopic = String(topicName || '').trim();
+      if (!cleanTopic) return;
+
+      stopSpeech();
+      activeGrammarTopic = cleanTopic;
+      renderGrammarTopicChips();
+
+      isGrammarBusy = true;
+      grammarStartBtn.disabled = true;
+      grammarStartBtn.textContent = 'Готовим...';
+
+      grammarContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo готовит правило и задания по теме «${escapeHtml(cleanTopic)}»...</div>`;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'grammar_lesson',
+            level: levelSelect.value,
+            grammarTopic: cleanTopic
+          })
+        });
+
+        const data = await res.json();
+        isGrammarBusy = false;
+        grammarStartBtn.disabled = false;
+        grammarStartBtn.textContent = 'Начать';
+
+        if (!res.ok) {
+          grammarContent.innerHTML = `<div class="error-banner">${escapeHtml(data.error || 'Не удалось создать урок.')}</div>`;
+          return;
+        }
+
+        grammarLesson = data;
+        grammarIndex = 0;
+        grammarScore = 0;
+        grammarAnswered = false;
+        grammarRuleCollapsed = false;
+        renderGrammarWorkspace();
+      } catch (_) {
+        isGrammarBusy = false;
+        grammarStartBtn.disabled = false;
+        grammarStartBtn.textContent = 'Начать';
+        grammarContent.innerHTML = `<div class="error-banner">Ошибка соединения с сервером. Попробуйте ещё раз.</div>`;
+      }
+    }
+
+    function normalizeGrammarAnswer(str) {
+      return String(str || '')
+        .toLowerCase()
+        .replace(/[’`]/g, "'")
+        .replace(/[.,!?;:]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function renderGrammarWorkspace() {
+      if (!grammarLesson) return;
+      grammarContent.innerHTML = '';
+
+      // 1. Карточка правила от ИИ
+      const ruleCard = document.createElement('div');
+      ruleCard.className = 'g-card';
+
+      const examplesHtml = (grammarLesson.examples || []).map(ex => `
+        <div class="g-example-row">
+          <div>
+            <div class="g-example-en">${renderClickableText(ex.en)}</div>
+            <div class="g-example-ru">${escapeHtml(ex.ru)}</div>
+          </div>
+          <button type="button" class="icon-btn g-play-ex" data-text="${escapeHtml(ex.en)}" title="Прослушать">▶</button>
+        </div>
+      `).join('');
+
+      ruleCard.innerHTML = `
+        <div class="g-rule-head">
+          <div class="g-rule-title">${escapeHtml(grammarLesson.topicTitle)}</div>
+          <button type="button" id="toggleRuleBtn" class="chip-btn">${grammarRuleCollapsed ? 'Показать правило' : 'Свернуть правило'}</button>
+        </div>
+        <div id="ruleBody" style="display:${grammarRuleCollapsed ? 'none' : 'flex'}; flex-direction:column; gap:12px;">
+          ${grammarLesson.formula ? `<div><span class="g-formula">${escapeHtml(grammarLesson.formula)}</span></div>` : ''}
+          <div class="g-summary">${escapeHtml(grammarLesson.summaryRu)}</div>
+          ${examplesHtml ? `<div class="g-examples">${examplesHtml}</div>` : ''}
+          ${grammarLesson.tipRu ? `<div class="g-tip"><strong>На что обратить внимание:</strong> ${escapeHtml(grammarLesson.tipRu)}</div>` : ''}
+        </div>
+      `;
+
+      ruleCard.querySelector('#toggleRuleBtn').addEventListener('click', () => {
+        grammarRuleCollapsed = !grammarRuleCollapsed;
+        ruleCard.querySelector('#ruleBody').style.display = grammarRuleCollapsed ? 'none' : 'flex';
+        ruleCard.querySelector('#toggleRuleBtn').textContent = grammarRuleCollapsed ? 'Показать правило' : 'Свернуть правило';
+      });
+
+      ruleCard.querySelectorAll('.g-play-ex').forEach(btn => {
+        btn.addEventListener('click', () => speakText(btn.dataset.text, 0.95));
+      });
+
+      ruleCard.addEventListener('click', (e) => {
+        const w = e.target.closest('.clickable-word');
+        if (!w) return;
+        const row = w.closest('.g-example-row');
+        const ctx = row ? row.querySelector('.g-example-en').textContent : '';
+        openQuickSave(w.dataset.word, ctx);
+      });
+
+      grammarContent.appendChild(ruleCard);
+
+      // 2. Карточка интерактивных заданий
+      const exCard = document.createElement('div');
+      exCard.className = 'g-card';
+      exCard.id = 'grammarExerciseCard';
+      renderGrammarExerciseInto(exCard);
+      grammarContent.appendChild(exCard);
+
+      // 3. Карточка «Спросить Echo по правилу»
+      const askCard = document.createElement('div');
+      askCard.className = 'g-card';
+      askCard.innerHTML = `
+        <div style="font-size:14px; font-weight:700;">Остались вопросы по этой теме?</div>
+        <form id="grammarAskForm" class="reading-bar">
+          <input id="grammarAskInput" class="field-input" type="text" placeholder="Например: почему здесь нельзя сказать did?" required />
+          <button id="grammarAskBtn" type="submit" class="primary-btn">Спросить</button>
+        </form>
+        <div id="grammarAskResult"></div>
+      `;
+
+      const askForm = askCard.querySelector('#grammarAskForm');
+      const askInput = askCard.querySelector('#grammarAskInput');
+      const askBtn = askCard.querySelector('#grammarAskBtn');
+      const askResult = askCard.querySelector('#grammarAskResult');
+
+      askForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const q = askInput.value.trim();
+        if (!q) return;
+        askBtn.disabled = true;
+        askBtn.textContent = 'Думает...';
+        askResult.innerHTML = '';
+
+        try {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'grammar_ask',
+              level: levelSelect.value,
+              grammarTopic: grammarLesson.topicTitle || activeGrammarTopic,
+              question: q
+            })
+          });
+          const data = await res.json();
+          askBtn.disabled = false;
+          askBtn.textContent = 'Спросить';
+
+          if (!res.ok) {
+            askResult.innerHTML = `<div class="error-banner">${escapeHtml(data.error || 'Ошибка запроса.')}</div>`;
+            return;
+          }
+
+          askResult.innerHTML = `
+            <div class="g-ask-answer">
+              <div>${escapeHtml(data.answerRu)}</div>
+              ${data.exampleEn ? `
+                <div class="g-example-row" style="background:var(--surface);">
+                  <div>
+                    <div class="g-example-en">${renderClickableText(data.exampleEn)}</div>
+                    <div class="g-example-ru">${escapeHtml(data.exampleRu)}</div>
+                  </div>
+                  <button type="button" class="icon-btn g-play-ask" title="Прослушать">▶</button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+          const playAsk = askResult.querySelector('.g-play-ask');
+          if (playAsk) playAsk.addEventListener('click', () => speakText(data.exampleEn, 0.95));
+          askResult.addEventListener('click', (ev) => {
+            const w = ev.target.closest('.clickable-word');
+            if (w) openQuickSave(w.dataset.word, data.exampleEn);
+          });
+          askInput.value = '';
+        } catch (_) {
+          askBtn.disabled = false;
+          askBtn.textContent = 'Спросить';
+          askResult.innerHTML = `<div class="error-banner">Ошибка сети. Попробуйте ещё раз.</div>`;
+        }
+      });
+
+      grammarContent.appendChild(askCard);
+    }
+
+    function renderGrammarExerciseInto(container) {
+      const list = grammarLesson.exercises || [];
+      const total = list.length;
+
+      if (grammarIndex >= total) {
+        const pct = total > 0 ? Math.round((grammarScore / total) * 100) : 0;
+        const msg = pct === 100
+          ? 'Безупречно! Тема отлично усвоена.'
+          : pct >= 60
+            ? 'Хороший результат! Можно закрепить ещё одним набором.'
+            : 'Неплохое начало — попробуйте пройти ещё 5 заданий, подглядывая в правило.';
+
+        container.innerHTML = `
+          <div style="text-align:center; padding:12px 6px; display:flex; flex-direction:column; gap:10px; align-items:center;">
+            <div style="font-size:28px; font-weight:800;">${grammarScore} / ${total}</div>
+            <div style="font-size:14px; color:var(--text-secondary); max-width:380px; line-height:1.5;">${msg}</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
+              <button type="button" id="gMoreBtn" class="primary-btn">Ещё 5 заданий по этой теме</button>
+            </div>
+          </div>
+        `;
+        container.querySelector('#gMoreBtn').addEventListener('click', () => {
+          loadGrammarLesson(activeGrammarTopic);
+        });
+        return;
+      }
+
+      const ex = list[grammarIndex];
+      const progressPct = Math.round(((grammarIndex) / total) * 100);
+      const sentenceHtml = escapeHtml(ex.sentence).replace('___', '<span id="gBlankSpan" class="g-blank">___</span>');
+
+      container.innerHTML = `
+        <div class="g-progress-row">
+          <span>Задание ${grammarIndex + 1} из ${total}</span>
+          <span>Верно: ${grammarScore}</span>
+        </div>
+        <div class="g-progress-bar"><div class="g-progress-fill" style="width:${progressPct}%"></div></div>
+        <div class="g-prompt">${escapeHtml(ex.promptRu)}${ex.hint ? ` · подсказка: <strong>${escapeHtml(ex.hint)}</strong>` : ''}</div>
+        <div class="g-sentence">${sentenceHtml}</div>
+        <div id="gInteractionArea"></div>
+        <div id="gFeedbackArea"></div>
+      `;
+
+      const interactionArea = container.querySelector('#gInteractionArea');
+      const feedbackArea = container.querySelector('#gFeedbackArea');
+      const blankSpan = container.querySelector('#gBlankSpan');
+
+      function handleResult(isCorrect, userValue) {
+        if (grammarAnswered) return;
+        grammarAnswered = true;
+        if (isCorrect) grammarScore += 1;
+
+        if (blankSpan) {
+          blankSpan.textContent = ex.answer;
+          blankSpan.classList.add(isCorrect ? 'ok' : 'bad');
+        }
+
+        feedbackArea.innerHTML = `
+          <div class="g-feedback-box ${isCorrect ? 'ok' : 'bad'}">
+            <div><strong>${isCorrect ? '✓ Верно!' : `✕ Правильный ответ: ${escapeHtml(ex.answer)}`}</strong>${!isCorrect && userValue ? ` (ваш ответ: ${escapeHtml(userValue)})` : ''}</div>
+            <div>${escapeHtml(ex.explanationRu)}</div>
+            <div class="g-feedback-sent">
+              <span>${renderClickableText(ex.fullSentence)}</span>
+              <button type="button" id="gPlayCorrect" class="chip-btn" style="flex-shrink:0;">▶</button>
+            </div>
+            ${ex.translationRu ? `<div class="g-feedback-tr">${escapeHtml(ex.translationRu)}</div>` : ''}
+          </div>
+          <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+            <button type="button" id="gNextBtn" class="primary-btn">${grammarIndex + 1 < total ? 'Следующее задание →' : 'Показать результат'}</button>
+          </div>
+        `;
+
+        feedbackArea.querySelector('#gPlayCorrect').addEventListener('click', () => {
+          speakText(ex.fullSentence, 0.95);
+        });
+
+        feedbackArea.addEventListener('click', (ev) => {
+          const w = ev.target.closest('.clickable-word');
+          if (w) openQuickSave(w.dataset.word, ex.fullSentence);
+        });
+
+        feedbackArea.querySelector('#gNextBtn').addEventListener('click', () => {
+          grammarIndex += 1;
+          grammarAnswered = false;
+          renderGrammarExerciseInto(container);
+        });
+      }
+
+      if (ex.type === 'choice') {
+        const grid = document.createElement('div');
+        grid.className = 'g-options';
+        const shuffled = [...ex.options].sort(() => Math.random() - 0.5);
+
+        shuffled.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'g-opt-btn';
+          btn.textContent = opt;
+          btn.addEventListener('click', () => {
+            if (grammarAnswered) return;
+            const isCorrect = normalizeGrammarAnswer(opt) === normalizeGrammarAnswer(ex.answer);
+            grid.querySelectorAll('.g-opt-btn').forEach(b => {
+              b.disabled = true;
+              if (normalizeGrammarAnswer(b.textContent) === normalizeGrammarAnswer(ex.answer)) {
+                b.classList.add('correct');
+              } else if (b === btn && !isCorrect) {
+                b.classList.add('wrong');
+              }
+            });
+            handleResult(isCorrect, opt);
+          });
+          grid.appendChild(btn);
+        });
+
+        interactionArea.appendChild(grid);
+      } else {
+        const form = document.createElement('form');
+        form.className = 'g-input-row';
+        form.innerHTML = `
+          <input id="gAnswerInput" class="field-input" type="text" placeholder="Впишите пропущенное слово..." autocomplete="off" required />
+          <button type="submit" class="primary-btn">Проверить</button>
+        `;
+        const inp = form.querySelector('#gAnswerInput');
+        const subBtn = form.querySelector('button[type="submit"]');
+
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (grammarAnswered) return;
+          const val = inp.value.trim();
+          if (!val) return;
+          inp.disabled = true;
+          subBtn.disabled = true;
+          const isCorrect = normalizeGrammarAnswer(val) === normalizeGrammarAnswer(ex.answer);
+          handleResult(isCorrect, val);
+        });
+
+        interactionArea.appendChild(form);
+        setTimeout(() => inp.focus(), 50);
+      }
+    }
+
+    grammarCustomForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = grammarCustomInput.value.trim();
+      if (val) loadGrammarLesson(val);
+    });
 
     // --- Вкладка «Чтение» ---
     async function generateReadingText() {
@@ -1539,7 +2249,6 @@
       card.appendChild(body);
       card.appendChild(legend);
 
-      // Клик по любому слову в заголовке или тексте
       card.addEventListener('click', (e) => {
         const wordEl = e.target.closest('.clickable-word');
         if (!wordEl) return;
@@ -1685,11 +2394,8 @@
       notesView.style.display = isNotes ? 'flex' : 'none';
       cardsView.style.display = isNotes ? 'none' : 'flex';
 
-      if (isNotes) {
-        renderVocabList();
-      } else {
-        startFlashcardsSession();
-      }
+      if (isNotes) renderVocabList();
+      else startFlashcardsSession();
     }
 
     function renderVocabList() {
@@ -1697,7 +2403,7 @@
         vocabListEl.innerHTML = `
           <div class="empty-state">
             В заметках пока пусто.<br>
-            Нажмите на любое незнакомое слово в «Чтении» или в тексте ответа Echo — либо добавьте его выше.
+            Нажмите на любое незнакомое слово в «Диалоге», «Чтении» или «Грамматике» — либо добавьте его выше.
           </div>
         `;
         return;
@@ -2395,25 +3101,37 @@
 
     restartBtn.addEventListener('click', () => {
       if (currentMode === 'reading') generateReadingText();
-      else startConversation();
+      else if (currentMode === 'grammar') {
+        if (activeGrammarTopic) loadGrammarLesson(activeGrammarTopic);
+      } else {
+        startConversation();
+      }
     });
 
     levelSelect.addEventListener('change', () => {
-      if (currentMode === 'reading') generateReadingText();
-      else startConversation();
+      if (currentMode === 'reading') {
+        generateReadingText();
+      } else if (currentMode === 'grammar') {
+        activeGrammarTopic = '';
+        grammarLesson = null;
+        renderGrammarTopicChips();
+      } else {
+        startConversation();
+      }
     });
 
     topicSelect.addEventListener('change', () => {
       if (currentMode === 'reading') {
         customTopicInput.value = '';
         generateReadingText();
-      } else {
+      } else if (currentMode === 'chat') {
         startConversation();
       }
     });
 
     // Инициализация
     updateVocabBadge();
+    renderGrammarTopicChips();
     startConversation();
   </script>
 </body>
