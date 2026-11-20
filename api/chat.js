@@ -1,5 +1,5 @@
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 80;
+const RATE_LIMIT_MAX_REQUESTS = 100;
 const MAX_AUDIO_BASE64_LENGTH = 4_000_000;
 
 const ipBuckets = new Map();
@@ -250,6 +250,8 @@ export default async function handler(req, res) {
       word = '',
       context = '',
       customTopic = '',
+      grammarTopic = '',
+      question = '',
       level = 'B1',
       topic = 'Свободная тема',
       history = []
@@ -307,7 +309,200 @@ Give a concise Russian translation (1-3 words) and a very short usage note or ex
       });
     }
 
-    // 2. Генерация адаптированного текста для вкладки «Чтение»
+    // 2. Урок и задания по грамматике
+    if (action === 'grammar_lesson') {
+      const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Present Simple';
+
+      const grammarPrompt = `
+You are Echo, a clear, friendly English grammar tutor for Russian-speaking learners.
+Student level: ${levelDesc}
+Grammar topic: "${targetTopic}"
+
+Create a concise mini-lesson and 5 fresh practice exercises strictly matching level ${level}:
+1. "topicTitle": clear title (English + Russian).
+2. "summaryRu": short, crystal-clear explanation of the rule in Russian (2-4 sentences, no textbook fluff).
+3. "formula": concise structure formula (e.g. "Subject + have/has + V3" or "a/an + singular countable").
+4. "tipRu": one practical tip or common mistake Russian speakers make (1-2 sentences in Russian).
+5. "examples": 3 natural everyday English examples with Russian translations.
+6. "exercises": exactly 5 varied exercises:
+   - First 3 exercises must have "type": "choice" with exactly 4 distinct options in "options" (one of which is the exact "answer").
+   - Last 2 exercises must have "type": "input" where the student types 1-3 words to fill the blank "___" (provide the base verb or clue in "hint", e.g. "go" or "not / see", and set "options": []).
+   - Each exercise MUST have "sentence" containing "___" for the gap, exact "answer" string that replaces "___", "fullSentence" (the complete correct English sentence), "translationRu" (Russian translation), and "explanationRu" (1-2 short sentences in Russian explaining WHY this answer is correct).
+   - No markdown, no emojis.
+`.trim();
+
+      const grammarSchema = {
+        type: 'OBJECT',
+        properties: {
+          topicTitle: { type: 'STRING' },
+          summaryRu: { type: 'STRING' },
+          formula: { type: 'STRING' },
+          tipRu: { type: 'STRING' },
+          examples: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                en: { type: 'STRING' },
+                ru: { type: 'STRING' }
+              },
+              required: ['en', 'ru']
+            }
+          },
+          exercises: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING' },
+                promptRu: { type: 'STRING' },
+                sentence: { type: 'STRING' },
+                hint: { type: 'STRING' },
+                options: { type: 'ARRAY', items: { type: 'STRING' } },
+                answer: { type: 'STRING' },
+                fullSentence: { type: 'STRING' },
+                translationRu: { type: 'STRING' },
+                explanationRu: { type: 'STRING' }
+              },
+              required: ['type', 'promptRu', 'sentence', 'hint', 'options', 'answer', 'fullSentence', 'translationRu', 'explanationRu']
+            }
+          }
+        },
+        required: ['topicTitle', 'summaryRu', 'formula', 'tipRu', 'examples', 'exercises']
+      };
+
+      const buildGrammarPayload = (thinkingConfig) => ({
+        contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
+        generationConfig: {
+          temperature: 0.75,
+          maxOutputTokens: 2800,
+          responseMimeType: 'application/json',
+          responseSchema: grammarSchema,
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      });
+
+      const attempts = [
+        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 16000 },
+        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 12000 }
+      ];
+
+      const errors = [];
+
+      for (const attempt of attempts) {
+        let result = await callGemini(apiKey, attempt.model, buildGrammarPayload(attempt.thinking), attempt.timeout);
+        if (!result.ok && result.status === 400 && attempt.thinking) {
+          result = await callGemini(apiKey, attempt.model, buildGrammarPayload(null), attempt.timeout);
+        }
+
+        if (!result.ok) {
+          errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
+          continue;
+        }
+
+        try {
+          const parts = result.data?.candidates?.[0]?.content?.parts || [];
+          const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+          const parsed = extractJson(textPart?.text || '');
+
+          const cleanExercises = (Array.isArray(parsed.exercises) ? parsed.exercises : [])
+            .filter(ex => ex && typeof ex.sentence === 'string' && typeof ex.answer === 'string' && ex.answer.trim())
+            .map(ex => {
+              const isChoice = ex.type === 'choice' && Array.isArray(ex.options) && ex.options.length >= 2;
+              return {
+                type: isChoice ? 'choice' : 'input',
+                promptRu: String(ex.promptRu || (isChoice ? 'Выберите правильный вариант' : 'Впишите правильную форму')).trim(),
+                sentence: ex.sentence.trim(),
+                hint: String(ex.hint || '').trim(),
+                options: isChoice ? ex.options.map(o => String(o).trim()).filter(Boolean) : [],
+                answer: ex.answer.trim(),
+                fullSentence: String(ex.fullSentence || ex.sentence.replace('___', ex.answer)).trim(),
+                translationRu: String(ex.translationRu || '').trim(),
+                explanationRu: String(ex.explanationRu || '').trim()
+              };
+            });
+
+          if (cleanExercises.length > 0) {
+            return res.status(200).json({
+              topicTitle: String(parsed.topicTitle || targetTopic).trim(),
+              summaryRu: String(parsed.summaryRu || '').trim(),
+              formula: String(parsed.formula || '').trim(),
+              tipRu: String(parsed.tipRu || '').trim(),
+              examples: (Array.isArray(parsed.examples) ? parsed.examples : [])
+                .filter(e => e && e.en)
+                .map(e => ({ en: String(e.en).trim(), ru: String(e.ru || '').trim() })),
+              exercises: cleanExercises
+            });
+          }
+          errors.push('пустой список заданий');
+        } catch (_) {
+          errors.push('ошибка разбора JSON');
+        }
+      }
+
+      return res.status(502).json({
+        error: 'Не удалось составить урок. Попробуйте нажать ещё раз. (' + errors.join(' | ') + ')'
+      });
+    }
+
+    // 3. Вопрос ИИ по текущей теме грамматики
+    if (action === 'grammar_ask') {
+      const cleanQ = String(question || '').trim().slice(0, 400);
+      const targetTopic = String(grammarTopic || '').trim().slice(0, 140);
+      if (!cleanQ) {
+        return res.status(400).json({ error: 'Введите вопрос.' });
+      }
+
+      const askPrompt = `
+You are Echo, a friendly English grammar tutor for Russian learners.
+Student level: ${levelDesc}
+Current grammar topic: "${targetTopic || 'Общая грамматика'}"
+Student question: "${cleanQ}"
+
+Answer clearly and concisely in Russian (2-4 sentences, easy to understand, no markdown).
+Also give one helpful English example sentence illustrating your answer and its Russian translation.
+`.trim();
+
+      const buildAskPayload = (thinkingConfig) => ({
+        contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 450,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              answerRu: { type: 'STRING' },
+              exampleEn: { type: 'STRING' },
+              exampleRu: { type: 'STRING' }
+            },
+            required: ['answerRu', 'exampleEn', 'exampleRu']
+          },
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      });
+
+      let askRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildAskPayload({ thinkingBudget: 0 }), 9000);
+      if (!askRes.ok && askRes.status === 400) {
+        askRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildAskPayload(null), 8000);
+      }
+
+      if (!askRes.ok) {
+        return res.status(502).json({ error: 'Не удалось получить ответ. Попробуйте ещё раз.' });
+      }
+
+      const parts = askRes.data?.candidates?.[0]?.content?.parts || [];
+      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+      const parsed = extractJson(textPart?.text || '{}');
+
+      return res.status(200).json({
+        answerRu: String(parsed.answerRu || '').trim(),
+        exampleEn: String(parsed.exampleEn || '').trim(),
+        exampleRu: String(parsed.exampleRu || '').trim()
+      });
+    }
+
+    // 4. Генерация адаптированного текста для вкладки «Чтение»
     if (action === 'reading') {
       const finalTopic = String(customTopic || '').trim().slice(0, 120) || topic;
       const styles = [
@@ -410,7 +605,7 @@ Requirements:
             });
           }
           errors.push('пустой список предложений');
-        } catch (parseErr) {
+        } catch (_) {
           errors.push('ошибка разбора JSON');
         }
       }
@@ -420,7 +615,7 @@ Requirements:
       });
     }
 
-    // 3. Разнообразный старт диалога
+    // 5. Разнообразный старт диалога
     if (action === 'start') {
       const seeds = SCENARIO_SEEDS[topic] || SCENARIO_SEEDS['Свободная тема'];
       const chosenSeed = pickRandom(seeds);
@@ -488,7 +683,7 @@ No markdown or emojis.
       });
     }
 
-    // 4. Основной диалог (голос или текст)
+    // 6. Основной диалог (голос или текст)
     if (audioBase64 && audioBase64.length > MAX_AUDIO_BASE64_LENGTH) {
       return res.status(413).json({ error: 'Аудио слишком большое. Попробуйте записать сообщение короче 45 секунд.' });
     }
