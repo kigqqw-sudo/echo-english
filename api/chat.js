@@ -1,5 +1,5 @@
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 200;
+const RATE_LIMIT_MAX_REQUESTS = 80;
 const MAX_AUDIO_BASE64_LENGTH = 4_000_000;
 
 const ipBuckets = new Map();
@@ -38,7 +38,6 @@ const LEVEL_GUIDANCE = {
   C1: 'Advanced (C1). Speak like an educated native speaker with nuanced vocabulary and natural idioms.'
 };
 
-// Случайные мини-сценарии, чтобы ИИ каждый раз начинал разговор по-новому
 const SCENARIO_SEEDS = {
   'Свободная тема': [
     'Ask a fun "would you rather" question about everyday life.',
@@ -87,7 +86,6 @@ const SCENARIO_SEEDS = {
   ]
 };
 
-// Запасные фразы (если ИИ не успеет ответить за 6 секунд)
 const FALLBACK_STARTERS = {
   'Свободная тема': {
     easy: [
@@ -239,7 +237,7 @@ export default async function handler(req, res) {
 
   if (!checkRateLimit(clientIp).allowed) {
     return res.status(429).json({
-      error: 'Превышен лимит сообщений (30 в час). Попробуйте снова немного позже.'
+      error: 'Превышен лимит запросов в час. Попробуйте снова немного позже.'
     });
   }
 
@@ -249,14 +247,62 @@ export default async function handler(req, res) {
       audioBase64 = '',
       mimeType = 'audio/webm',
       text = '',
+      word = '',
+      context = '',
       level = 'B1',
       topic = 'Свободная тема',
       history = []
     } = req.body || {};
 
+    // Быстрый перевод слова или фразы для заметок и карточек
+    if (action === 'translate') {
+      const cleanWord = String(word || '').trim().slice(0, 200);
+      const cleanCtx = String(context || '').trim().slice(0, 400);
+      if (!cleanWord) {
+        return res.status(400).json({ error: 'Не указано слово для перевода.' });
+      }
+
+      const trPrompt = `
+Translate the English word or phrase "${cleanWord}" into Russian${cleanCtx ? ` as used in the sentence: "${cleanCtx}"` : ''}.
+Return ONLY valid JSON:
+{
+  "translation": "concise Russian translation (1-3 words or short phrase)",
+  "note": "very short usage note or short example in Russian/English (max 12 words, or empty string)"
+}
+`.trim();
+
+      const buildTrPayload = (thinkingConfig) => ({
+        contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 180,
+          responseMimeType: 'application/json',
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      });
+
+      let trRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildTrPayload({ thinkingBudget: 0 }), 7000);
+      if (!trRes.ok && trRes.status === 400) {
+        trRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildTrPayload(null), 6000);
+      }
+
+      if (!trRes.ok) {
+        return res.status(502).json({ error: 'Не удалось перевести слово. Введите перевод вручную.' });
+      }
+
+      const parts = trRes.data?.candidates?.[0]?.content?.parts || [];
+      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+      const parsed = extractJson(textPart?.text || '{}');
+
+      return res.status(200).json({
+        translation: parsed.translation || '',
+        note: parsed.note || ''
+      });
+    }
+
     const levelDesc = LEVEL_GUIDANCE[level] || LEVEL_GUIDANCE.B1;
 
-    // Разнообразный старт: ИИ придумывает реплику под случайный мини-сценарий (с мгновенным запасом)
+    // Разнообразный старт диалога
     if (action === 'start') {
       const seeds = SCENARIO_SEEDS[topic] || SCENARIO_SEEDS['Свободная тема'];
       const chosenSeed = pickRandom(seeds);
@@ -347,7 +393,7 @@ Return ONLY a valid JSON object with these exact 6 keys:
 `.trim();
 
     const contents = [];
-    const safeHistory = Array.isArray(history) ? history.slice(-100) : [];
+    const safeHistory = Array.isArray(history) ? history.slice(-10) : [];
 
     if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
       contents.push({
