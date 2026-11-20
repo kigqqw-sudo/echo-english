@@ -1,5 +1,5 @@
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 30;
+const RATE_LIMIT_MAX_REQUESTS = 200;
 const MAX_AUDIO_BASE64_LENGTH = 4_000_000;
 
 const ipBuckets = new Map();
