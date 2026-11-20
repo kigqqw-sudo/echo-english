@@ -309,44 +309,79 @@ Give a concise Russian translation (1-3 words) and a very short usage note or ex
       });
     }
 
-    // 2. Урок и задания по грамматике
+    // 2. Подробный урок и задания по грамматике
     if (action === 'grammar_lesson') {
       const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Present Simple';
 
       const grammarPrompt = `
-You are Echo, a clear, friendly English grammar tutor for Russian-speaking learners.
+You are Echo, an expert, super-clear English grammar tutor for Russian-speaking learners.
 Student level: ${levelDesc}
 Grammar topic: "${targetTopic}"
 
-Create a concise mini-lesson and 5 fresh practice exercises strictly matching level ${level}:
+Create a thorough, comprehensive, easy-to-understand grammar guide in Russian covering the ENTIRE topic (never leave out negative forms, questions, or key rules!), plus 5 interactive exercises strictly suited to level ${level}:
+
 1. "topicTitle": clear title (English + Russian).
-2. "summaryRu": short, crystal-clear explanation of the rule in Russian (2-4 sentences, no textbook fluff).
-3. "formula": concise structure formula (e.g. "Subject + have/has + V3" or "a/an + singular countable").
-4. "tipRu": one practical tip or common mistake Russian speakers make (1-2 sentences in Russian).
-5. "examples": 3 natural everyday English examples with Russian translations.
-6. "exercises": exactly 5 varied exercises:
-   - First 3 exercises must have "type": "choice" with exactly 4 distinct options in "options" (one of which is the exact "answer").
-   - Last 2 exercises must have "type": "input" where the student types 1-3 words to fill the blank "___" (provide the base verb or clue in "hint", e.g. "go" or "not / see", and set "options": []).
-   - Each exercise MUST have "sentence" containing "___" for the gap, exact "answer" string that replaces "___", "fullSentence" (the complete correct English sentence), "translationRu" (Russian translation), and "explanationRu" (1-2 short sentences in Russian explaining WHY this answer is correct).
-   - No markdown, no emojis.
+2. "whenToUseRu": 3-4 concise bullet points in plain Russian explaining all main situations when this grammar is used in real life.
+3. "sections": 3 to 4 detailed sub-sections covering EVERY major part of the topic:
+   - If the topic is a tense or verb construction (e.g. Present Simple, Past Simple, Present Perfect, Passive Voice, to be, used to, etc.), you MUST include separate sections for:
+     (1) Утверждение (+)
+     (2) Отрицание (−)
+     (3) Вопросы (?) и краткие ответы
+     (4) Важные правила и нюансы (например, окончания -s/-es, неправильные глаголы, сокращения don't/doesn't, порядок слов).
+   - If the topic is non-tense (e.g. Articles, Prepositions, Conditionals, Modals, Gerund/Infinitive, Comparison), break it into 3-4 complete logical blocks covering all core cases and exceptions.
+   - For EACH section provide:
+     * "headingRu": clear Russian heading
+     * "formula": clear compact formula (or empty string if not applicable)
+     * "explanationRu": thorough, friendly explanation in plain Russian (2-4 sentences, explain WHY and HOW clearly, without dry academic jargon)
+     * "examples": 2-3 natural everyday English examples with Russian translation demonstrating different pronouns/cases.
+4. "markers": 4 to 7 helpful signal words, time markers, or trigger phrases with short Russian translations (e.g. "always (всегда)", "every day (каждый день)"). If no markers apply, provide key trigger words for this rule.
+5. "commonMistakes": 2 to 3 typical mistakes Russian speakers make on this topic, each with "wrongEn", "rightEn", and a short clear "explanationRu".
+6. "exercises": exactly 5 varied exercises testing DIFFERENT aspects of the topic (mix affirmative, negative, questions, and tricky cases!):
+   - First 3 exercises: "type": "choice" with exactly 4 distinct options in "options" (one is the exact "answer").
+   - Last 2 exercises: "type": "input" where the student types 1-3 words for the gap "___" (give a clear cue in "hint", e.g. "not / go" or "she / work?", and set "options": []).
+   - Every exercise MUST include "sentence" with "___", exact "answer", "fullSentence", "translationRu", and "explanationRu" (1-2 clear sentences in Russian explaining why).
+   - No markdown symbols (no *, **, #) and no emojis anywhere.
 `.trim();
 
       const grammarSchema = {
         type: 'OBJECT',
         properties: {
           topicTitle: { type: 'STRING' },
-          summaryRu: { type: 'STRING' },
-          formula: { type: 'STRING' },
-          tipRu: { type: 'STRING' },
-          examples: {
+          whenToUseRu: { type: 'ARRAY', items: { type: 'STRING' } },
+          sections: {
             type: 'ARRAY',
             items: {
               type: 'OBJECT',
               properties: {
-                en: { type: 'STRING' },
-                ru: { type: 'STRING' }
+                headingRu: { type: 'STRING' },
+                formula: { type: 'STRING' },
+                explanationRu: { type: 'STRING' },
+                examples: {
+                  type: 'ARRAY',
+                  items: {
+                    type: 'OBJECT',
+                    properties: {
+                      en: { type: 'STRING' },
+                      ru: { type: 'STRING' }
+                    },
+                    required: ['en', 'ru']
+                  }
+                }
               },
-              required: ['en', 'ru']
+              required: ['headingRu', 'formula', 'explanationRu', 'examples']
+            }
+          },
+          markers: { type: 'ARRAY', items: { type: 'STRING' } },
+          commonMistakes: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                wrongEn: { type: 'STRING' },
+                rightEn: { type: 'STRING' },
+                explanationRu: { type: 'STRING' }
+              },
+              required: ['wrongEn', 'rightEn', 'explanationRu']
             }
           },
           exercises: {
@@ -368,14 +403,14 @@ Create a concise mini-lesson and 5 fresh practice exercises strictly matching le
             }
           }
         },
-        required: ['topicTitle', 'summaryRu', 'formula', 'tipRu', 'examples', 'exercises']
+        required: ['topicTitle', 'whenToUseRu', 'sections', 'markers', 'commonMistakes', 'exercises']
       };
 
       const buildGrammarPayload = (thinkingConfig) => ({
         contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
         generationConfig: {
-          temperature: 0.75,
-          maxOutputTokens: 2800,
+          temperature: 0.7,
+          maxOutputTokens: 4500,
           responseMimeType: 'application/json',
           responseSchema: grammarSchema,
           ...(thinkingConfig ? { thinkingConfig } : {})
@@ -383,8 +418,8 @@ Create a concise mini-lesson and 5 fresh practice exercises strictly matching le
       });
 
       const attempts = [
-        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 16000 },
-        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 12000 }
+        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 19000 },
+        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 9000 }
       ];
 
       const errors = [];
@@ -405,6 +440,17 @@ Create a concise mini-lesson and 5 fresh practice exercises strictly matching le
           const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
           const parsed = extractJson(textPart?.text || '');
 
+          const cleanSections = (Array.isArray(parsed.sections) ? parsed.sections : [])
+            .filter(s => s && (s.headingRu || s.explanationRu))
+            .map(s => ({
+              headingRu: String(s.headingRu || '').trim(),
+              formula: String(s.formula || '').trim(),
+              explanationRu: String(s.explanationRu || '').trim(),
+              examples: (Array.isArray(s.examples) ? s.examples : [])
+                .filter(e => e && e.en)
+                .map(e => ({ en: String(e.en).trim(), ru: String(e.ru || '').trim() }))
+            }));
+
           const cleanExercises = (Array.isArray(parsed.exercises) ? parsed.exercises : [])
             .filter(ex => ex && typeof ex.sentence === 'string' && typeof ex.answer === 'string' && ex.answer.trim())
             .map(ex => {
@@ -422,19 +468,25 @@ Create a concise mini-lesson and 5 fresh practice exercises strictly matching le
               };
             });
 
-          if (cleanExercises.length > 0) {
+          if (cleanSections.length > 0 && cleanExercises.length > 0) {
             return res.status(200).json({
               topicTitle: String(parsed.topicTitle || targetTopic).trim(),
-              summaryRu: String(parsed.summaryRu || '').trim(),
-              formula: String(parsed.formula || '').trim(),
-              tipRu: String(parsed.tipRu || '').trim(),
-              examples: (Array.isArray(parsed.examples) ? parsed.examples : [])
-                .filter(e => e && e.en)
-                .map(e => ({ en: String(e.en).trim(), ru: String(e.ru || '').trim() })),
+              whenToUseRu: (Array.isArray(parsed.whenToUseRu) ? parsed.whenToUseRu : [])
+                .map(x => String(x || '').trim()).filter(Boolean),
+              sections: cleanSections,
+              markers: (Array.isArray(parsed.markers) ? parsed.markers : [])
+                .map(x => String(x || '').trim()).filter(Boolean),
+              commonMistakes: (Array.isArray(parsed.commonMistakes) ? parsed.commonMistakes : [])
+                .filter(m => m && m.wrongEn && m.rightEn)
+                .map(m => ({
+                  wrongEn: String(m.wrongEn).trim(),
+                  rightEn: String(m.rightEn).trim(),
+                  explanationRu: String(m.explanationRu || '').trim()
+                })),
               exercises: cleanExercises
             });
           }
-          errors.push('пустой список заданий');
+          errors.push('неполный урок');
         } catch (_) {
           errors.push('ошибка разбора JSON');
         }
@@ -459,7 +511,7 @@ Student level: ${levelDesc}
 Current grammar topic: "${targetTopic || 'Общая грамматика'}"
 Student question: "${cleanQ}"
 
-Answer clearly and concisely in Russian (2-4 sentences, easy to understand, no markdown).
+Answer clearly and thoroughly in Russian (2-5 sentences, easy to understand, no markdown).
 Also give one helpful English example sentence illustrating your answer and its Russian translation.
 `.trim();
 
@@ -467,7 +519,7 @@ Also give one helpful English example sentence illustrating your answer and its 
         contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
         generationConfig: {
           temperature: 0.5,
-          maxOutputTokens: 450,
+          maxOutputTokens: 550,
           responseMimeType: 'application/json',
           responseSchema: {
             type: 'OBJECT',
