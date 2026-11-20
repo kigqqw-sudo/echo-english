@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-  <title>Echo — Разговорный английский с ИИ</title>
+  <title>Echo — Разговорный английский и чтение с ИИ</title>
   <style>
     :root {
       --bg: #fafafa;
@@ -58,7 +58,7 @@
       justify-content: space-between;
       gap: 8px;
       padding: 12px 16px;
-      background: rgba(250, 250, 250, 0.92);
+      background: rgba(250, 250, 250, 0.94);
       backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
@@ -150,6 +150,44 @@
     .vocab-badge.empty {
       background: var(--surface-muted);
       color: var(--text-secondary);
+    }
+
+    /* Mode switcher (Диалог / Чтение) */
+    .mode-bar {
+      padding: 8px 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      background: var(--surface-muted);
+      padding: 3px;
+      border-radius: 12px;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+
+    .mode-tab {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 7px 12px;
+      border-radius: 9px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+    }
+
+    .mode-tab.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     }
 
     /* Chat area */
@@ -279,11 +317,14 @@
       color: var(--text-secondary);
       font-size: 12px;
       font-weight: 500;
-      padding: 4px 10px;
+      padding: 5px 10px;
       border-radius: 999px;
       cursor: pointer;
+      font-family: inherit;
       transition: background 0.15s, color 0.15s;
     }
+
+    .chip-btn:hover { background: #e5e7eb; color: var(--text); }
 
     .chip-btn.open {
       background: var(--accent);
@@ -300,12 +341,13 @@
     .hidden-box.show { display: block; }
     .hidden-box.ru { color: var(--text-secondary); font-size: 13px; }
 
+    /* Clickable & Saved words */
     .clickable-word {
       cursor: pointer;
       border-radius: 4px;
-      padding: 0 1px;
-      border-bottom: 1px dashed #d1d5db;
-      transition: background 0.12s, border-color 0.12s;
+      padding: 0 2px;
+      border-bottom: 1px dashed transparent;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
     }
 
     .clickable-word:hover {
@@ -313,11 +355,178 @@
       border-bottom-color: var(--accent);
     }
 
+    .clickable-word.saved {
+      background: #fef3c7;
+      border-bottom: 1px solid #f59e0b;
+      color: #92400e;
+    }
+
+    .clickable-word.saved:hover {
+      background: #fde68a;
+    }
+
     .word-tap-hint {
       display: block;
       margin-top: 6px;
       font-size: 11px;
       color: #9ca3af;
+    }
+
+    /* Reading View */
+    .reading-view {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 16px 32px;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .reading-view.active { display: flex; }
+
+    .reading-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .reading-bar .field-input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .reading-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    .reading-header {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--surface-muted);
+    }
+
+    .reading-title-en {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+    }
+
+    .reading-title-ru {
+      display: none;
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .reading-title-ru.show { display: block; }
+
+    .reading-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .reading-body {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .reading-paragraph {
+      font-size: 16px;
+      line-height: 1.8;
+      color: var(--text);
+    }
+
+    .sentence-unit {
+      display: inline;
+    }
+
+    .sentence-tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin: 0 6px 0 3px;
+      vertical-align: middle;
+    }
+
+    .sent-btn {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-secondary);
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 5px;
+      line-height: 1.2;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+
+    .sent-btn:hover {
+      border-color: #d1d5db;
+      color: var(--text);
+      background: var(--surface-muted);
+    }
+
+    .sent-btn.open {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .sentence-ru {
+      display: none;
+      margin: 8px 0 12px;
+      padding: 9px 12px;
+      border-radius: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+    }
+
+    .sentence-ru.show {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .save-sent-btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      cursor: pointer;
+      flex-shrink: 0;
+      font-family: inherit;
+    }
+
+    .save-sent-btn:hover { background: var(--surface-muted); }
+
+    .reading-legend {
+      font-size: 12px;
+      color: #9ca3af;
+      padding-top: 10px;
+      border-top: 1px solid var(--surface-muted);
+      line-height: 1.5;
     }
 
     /* User audio + transcript */
@@ -544,6 +753,7 @@
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
+      white-space: nowrap;
       transition: background 0.15s;
     }
 
@@ -644,7 +854,7 @@
     .tab-btn.active {
       background: var(--surface);
       color: var(--text);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     }
 
     /* Quick-save form */
@@ -852,7 +1062,9 @@
 
     @media (max-width: 520px) {
       .add-row { grid-template-columns: 1fr; }
-      select { max-width: 118px; }
+      select { max-width: 112px; }
+      .reading-card { padding: 16px; }
+      .reading-paragraph { font-size: 15px; }
     }
   </style>
 </head>
@@ -871,7 +1083,7 @@
           <option value="B2">B2 · Выше среднего</option>
           <option value="C1">C1 · Продвинутый</option>
         </select>
-        <select id="topicSelect" title="Тема диалога">
+        <select id="topicSelect" title="Тема">
           <option value="Свободная тема">Свободная тема</option>
           <option value="Путешествия">Путешествия</option>
           <option value="В кафе и ресторане">В кафе</option>
@@ -885,15 +1097,32 @@
         <button id="autoPlayBtn" class="icon-btn active" title="Автоозвучка ответов">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
         </button>
-        <button id="restartBtn" class="icon-btn" title="Начать диалог заново">
+        <button id="restartBtn" class="icon-btn" title="Обновить диалог или текст">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
         </button>
       </div>
     </header>
 
+    <div class="mode-bar">
+      <div class="mode-tabs">
+        <button type="button" id="modeChatBtn" class="mode-tab active">Диалог</button>
+        <button type="button" id="modeReadingBtn" class="mode-tab">Чтение</button>
+      </div>
+    </div>
+
+    <!-- Вкладка 1: Диалог -->
     <main id="chat" class="chat"></main>
 
-    <footer class="footer">
+    <!-- Вкладка 2: Чтение адаптированных текстов -->
+    <section id="readingView" class="reading-view">
+      <form id="readingForm" class="reading-bar">
+        <input id="customTopicInput" class="field-input" type="text" placeholder="Своя тема (или используется тема сверху)..." />
+        <button id="genReadingBtn" type="submit" class="primary-btn">Новый текст</button>
+      </form>
+      <div id="readingContent"></div>
+    </section>
+
+    <footer id="chatFooter" class="footer">
       <div id="voicePanel" class="voice-panel">
         <button id="cancelRecBtn" class="side-btn left" style="display:none;" title="Отменить запись">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -946,11 +1175,14 @@
         </div>
         <div class="field-group">
           <label class="field-label" for="swNote">Заметка или пример (необязательно)</label>
-          <input id="swNote" class="field-input" type="text" placeholder="Например, контекст из диалога" />
+          <input id="swNote" class="field-input" type="text" placeholder="Например, контекст из текста" />
         </div>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
-          <button type="button" id="cancelSaveBtn" class="secondary-btn">Отмена</button>
-          <button type="submit" class="primary-btn">Сохранить</button>
+        <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:4px;">
+          <button type="button" id="deleteFromQuickBtn" class="secondary-btn" style="display:none; color:#dc2626; border-color:#fecaca;">Удалить</button>
+          <div style="display:flex; gap:8px; margin-left:auto;">
+            <button type="button" id="cancelSaveBtn" class="secondary-btn">Отмена</button>
+            <button type="submit" id="confirmSaveBtn" class="primary-btn">Сохранить</button>
+          </div>
         </div>
       </form>
     </div>
@@ -967,7 +1199,6 @@
         <button id="closeVocabModal" class="icon-btn" title="Закрыть">✕</button>
       </div>
       <div class="modal-body">
-        <!-- Вкладка Заметки -->
         <div id="notesView" style="display:flex; flex-direction:column; gap:14px;">
           <form id="manualAddForm" class="add-box">
             <div class="add-row">
@@ -982,7 +1213,6 @@
           <div id="vocabList" class="vocab-list"></div>
         </div>
 
-        <!-- Вкладка Карточки -->
         <div id="cardsView" style="display:none; flex-direction:column; gap:14px;"></div>
       </div>
     </div>
@@ -992,6 +1222,16 @@
 
   <script>
     const chatEl = document.getElementById('chat');
+    const chatFooter = document.getElementById('chatFooter');
+    const readingView = document.getElementById('readingView');
+    const readingForm = document.getElementById('readingForm');
+    const customTopicInput = document.getElementById('customTopicInput');
+    const genReadingBtn = document.getElementById('genReadingBtn');
+    const readingContent = document.getElementById('readingContent');
+
+    const modeChatBtn = document.getElementById('modeChatBtn');
+    const modeReadingBtn = document.getElementById('modeReadingBtn');
+
     const levelSelect = document.getElementById('levelSelect');
     const topicSelect = document.getElementById('topicSelect');
     const autoPlayBtn = document.getElementById('autoPlayBtn');
@@ -1017,6 +1257,8 @@
     const saveModal = document.getElementById('saveModal');
     const closeSaveModal = document.getElementById('closeSaveModal');
     const cancelSaveBtn = document.getElementById('cancelSaveBtn');
+    const deleteFromQuickBtn = document.getElementById('deleteFromQuickBtn');
+    const confirmSaveBtn = document.getElementById('confirmSaveBtn');
     const saveWordForm = document.getElementById('saveWordForm');
     const swWord = document.getElementById('swWord');
     const swTranslation = document.getElementById('swTranslation');
@@ -1036,6 +1278,11 @@
     const vocabListEl = document.getElementById('vocabList');
     const toastEl = document.getElementById('toast');
 
+    let currentMode = 'chat'; // 'chat' | 'reading'
+    let readingLoadedOnce = false;
+    let isReadingBusy = false;
+    let readingSpeed = 1.0;
+
     let history = [];
     let autoPlay = true;
     let isBusy = false;
@@ -1052,17 +1299,18 @@
 
     let preferredVoice = null;
     let activeVoiceBar = null;
+    let activeReadingPlayBtn = null;
 
     const MAX_SECONDS = 45;
     const VOCAB_STORAGE_KEY = 'echo_vocab_v1';
 
-    // Состояние словаря и карточек
+    // Словарь и карточки
     let vocab = loadVocab();
     let fcQueue = [];
     let fcTotal = 0;
     let fcKnown = 0;
     let fcFlipped = false;
-    let fcDirection = 'en-ru'; // 'en-ru' или 'ru-en'
+    let fcDirection = 'en-ru';
 
     function loadVocab() {
       try {
@@ -1074,11 +1322,24 @@
       }
     }
 
+    function isWordSaved(word) {
+      const target = String(word || '').trim().toLowerCase();
+      if (!target) return false;
+      return vocab.some(v => v.en.toLowerCase() === target);
+    }
+
+    function refreshSavedWordHighlights() {
+      document.querySelectorAll('.clickable-word').forEach(el => {
+        el.classList.toggle('saved', isWordSaved(el.dataset.word));
+      });
+    }
+
     function persistVocab() {
       try {
         localStorage.setItem(VOCAB_STORAGE_KEY, JSON.stringify(vocab));
       } catch (_) {}
       updateVocabBadge();
+      refreshSavedWordHighlights();
     }
 
     function updateVocabBadge() {
@@ -1121,22 +1382,243 @@
       renderVocabList();
     }
 
-    // --- Быстрое окно сохранения слова ---
-    async function openQuickSave(word, contextSentence = '', presetNote = '') {
-      swWord.value = word;
-      swTranslation.value = '';
-      swTranslation.placeholder = 'Переводим...';
+    // --- Переключение вкладок Диалог / Чтение ---
+    function switchMode(mode) {
+      if (currentMode === mode) return;
+      stopSpeech();
+      if (isRecording) stopRecording(true);
+
+      currentMode = mode;
+      const isChat = mode === 'chat';
+
+      modeChatBtn.classList.toggle('active', isChat);
+      modeReadingBtn.classList.toggle('active', !isChat);
+      chatEl.style.display = isChat ? 'flex' : 'none';
+      chatFooter.style.display = isChat ? 'block' : 'none';
+      readingView.classList.toggle('active', !isChat);
+
+      if (!isChat && !readingLoadedOnce) {
+        generateReadingText();
+      }
+    }
+
+    modeChatBtn.addEventListener('click', () => switchMode('chat'));
+    modeReadingBtn.addEventListener('click', () => switchMode('reading'));
+
+    // --- Вкладка «Чтение» ---
+    async function generateReadingText() {
+      if (isReadingBusy) return;
+      stopSpeech();
+      isReadingBusy = true;
+      readingLoadedOnce = true;
+      genReadingBtn.disabled = true;
+      genReadingBtn.textContent = 'Создаём...';
+
+      readingContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo пишет адаптированный текст (${escapeHtml(levelSelect.value)})...</div>`;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'reading',
+            level: levelSelect.value,
+            topic: topicSelect.value,
+            customTopic: customTopicInput.value.trim()
+          })
+        });
+
+        const data = await res.json();
+        isReadingBusy = false;
+        genReadingBtn.disabled = false;
+        genReadingBtn.textContent = 'Новый текст';
+
+        if (!res.ok) {
+          readingContent.innerHTML = `<div class="error-banner">${escapeHtml(data.error || 'Не удалось создать текст.')}</div>`;
+          return;
+        }
+
+        renderReadingArticle(data);
+      } catch (_) {
+        isReadingBusy = false;
+        genReadingBtn.disabled = false;
+        genReadingBtn.textContent = 'Новый текст';
+        readingContent.innerHTML = `<div class="error-banner">Ошибка соединения с сервером. Попробуйте ещё раз.</div>`;
+      }
+    }
+
+    function renderReadingArticle(data) {
+      const allSentences = [];
+      const card = document.createElement('article');
+      card.className = 'reading-card';
+
+      const header = document.createElement('div');
+      header.className = 'reading-header';
+      header.innerHTML = `
+        <div>
+          <div class="reading-title-en">${renderClickableText(data.titleEn)}</div>
+          ${data.titleRu ? `<div class="reading-title-ru">${escapeHtml(data.titleRu)}</div>` : ''}
+        </div>
+        <div class="reading-tools">
+          <button type="button" id="readAllPlayBtn" class="chip-btn">▶ Слушать текст</button>
+          <button type="button" id="readSpeedBtn" class="speed-btn">${readingSpeed.toFixed(1)}x</button>
+          <button type="button" id="readToggleAllBtn" class="chip-btn">Перевод всего текста</button>
+        </div>
+      `;
+
+      const body = document.createElement('div');
+      body.className = 'reading-body';
+
+      (data.paragraphs || []).forEach(paragraph => {
+        const pEl = document.createElement('div');
+        pEl.className = 'reading-paragraph';
+
+        paragraph.forEach(sent => {
+          allSentences.push(sent.en);
+
+          const unit = document.createElement('span');
+          unit.className = 'sentence-unit';
+          unit.dataset.sentenceEn = sent.en;
+
+          const enSpan = document.createElement('span');
+          enSpan.className = 'sentence-en';
+          enSpan.innerHTML = renderClickableText(sent.en);
+
+          const tools = document.createElement('span');
+          tools.className = 'sentence-tools';
+
+          const trBtn = document.createElement('button');
+          trBtn.type = 'button';
+          trBtn.className = 'sent-btn tr-sent-btn';
+          trBtn.textContent = 'RU';
+          trBtn.title = 'Перевести это предложение';
+
+          const playSentBtn = document.createElement('button');
+          playSentBtn.type = 'button';
+          playSentBtn.className = 'sent-btn';
+          playSentBtn.textContent = '▶';
+          playSentBtn.title = 'Прослушать предложение';
+
+          tools.appendChild(trBtn);
+          tools.appendChild(playSentBtn);
+
+          const ruBox = document.createElement('span');
+          ruBox.className = 'sentence-ru';
+          ruBox.innerHTML = `
+            <span>${escapeHtml(sent.ru || 'Перевод недоступен')}</span>
+            <button type="button" class="save-sent-btn">+ В заметки</button>
+          `;
+
+          trBtn.addEventListener('click', () => {
+            const isOpen = ruBox.classList.toggle('show');
+            trBtn.classList.toggle('open', isOpen);
+          });
+
+          playSentBtn.addEventListener('click', () => {
+            speakText(sent.en, readingSpeed);
+          });
+
+          ruBox.querySelector('.save-sent-btn').addEventListener('click', () => {
+            openQuickSave(sent.en, '', '', sent.ru || '');
+          });
+
+          unit.appendChild(enSpan);
+          unit.appendChild(tools);
+          unit.appendChild(ruBox);
+          pEl.appendChild(unit);
+        });
+
+        body.appendChild(pEl);
+      });
+
+      const legend = document.createElement('div');
+      legend.className = 'reading-legend';
+      legend.textContent = 'Нажмите на любое слово, чтобы перевести и отметить его в словаре. Нажмите «RU» после предложения для его перевода.';
+
+      card.appendChild(header);
+      card.appendChild(body);
+      card.appendChild(legend);
+
+      // Клик по любому слову в заголовке или тексте
+      card.addEventListener('click', (e) => {
+        const wordEl = e.target.closest('.clickable-word');
+        if (!wordEl) return;
+        const unit = wordEl.closest('.sentence-unit');
+        const ctx = unit ? unit.dataset.sentenceEn : data.titleEn;
+        openQuickSave(wordEl.dataset.word, ctx);
+      });
+
+      const fullText = [data.titleEn, ...allSentences].join('. ');
+      const readAllPlayBtn = header.querySelector('#readAllPlayBtn');
+      const readSpeedBtn = header.querySelector('#readSpeedBtn');
+      const readToggleAllBtn = header.querySelector('#readToggleAllBtn');
+      const titleRuEl = header.querySelector('.reading-title-ru');
+
+      readAllPlayBtn.addEventListener('click', () => {
+        if (activeReadingPlayBtn === readAllPlayBtn) {
+          stopSpeech();
+          return;
+        }
+        speakText(fullText, readingSpeed, null, readAllPlayBtn);
+      });
+
+      readSpeedBtn.addEventListener('click', () => {
+        readingSpeed = readingSpeed === 1.0 ? 0.8 : 1.0;
+        readSpeedBtn.textContent = readingSpeed.toFixed(1) + 'x';
+        if (activeReadingPlayBtn === readAllPlayBtn) {
+          stopSpeech();
+          speakText(fullText, readingSpeed, null, readAllPlayBtn);
+        }
+      });
+
+      let allOpen = false;
+      readToggleAllBtn.addEventListener('click', () => {
+        allOpen = !allOpen;
+        readToggleAllBtn.classList.toggle('open', allOpen);
+        readToggleAllBtn.textContent = allOpen ? 'Скрыть перевод' : 'Перевод всего текста';
+        if (titleRuEl) titleRuEl.classList.toggle('show', allOpen);
+        card.querySelectorAll('.sentence-ru').forEach(el => el.classList.toggle('show', allOpen));
+        card.querySelectorAll('.tr-sent-btn').forEach(el => el.classList.toggle('open', allOpen));
+      });
+
+      readingContent.innerHTML = '';
+      readingContent.appendChild(card);
+    }
+
+    readingForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      generateReadingText();
+    });
+
+    // --- Быстрое окно сохранения слова/фразы ---
+    async function openQuickSave(word, contextSentence = '', presetNote = '', presetTranslation = '') {
+      const cleanWord = String(word || '').trim();
+      swWord.value = cleanWord;
+      swTranslation.value = presetTranslation;
       swNote.value = presetNote;
       saveModal.classList.add('open');
 
-      // Если слово уже есть в словаре — сразу подставим
-      const existing = vocab.find(v => v.en.toLowerCase() === word.toLowerCase());
+      const existing = vocab.find(v => v.en.toLowerCase() === cleanWord.toLowerCase());
       if (existing) {
         swTranslation.value = existing.ru;
         if (!presetNote) swNote.value = existing.note || '';
         swTranslation.placeholder = 'Перевод на русский';
+        confirmSaveBtn.textContent = 'Обновить';
+        deleteFromQuickBtn.style.display = 'inline-block';
+        deleteFromQuickBtn.dataset.id = existing.id;
         return;
       }
+
+      confirmSaveBtn.textContent = 'Сохранить';
+      deleteFromQuickBtn.style.display = 'none';
+      deleteFromQuickBtn.dataset.id = '';
+
+      if (presetTranslation) {
+        swTranslation.placeholder = 'Перевод на русский';
+        return;
+      }
+
+      swTranslation.placeholder = 'Переводим...';
 
       try {
         const res = await fetch('/api/chat', {
@@ -1144,12 +1626,12 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'translate',
-            word,
+            word: cleanWord,
             context: contextSentence
           })
         });
         const data = await res.json();
-        if (res.ok && swWord.value === word) {
+        if (res.ok && swWord.value === cleanWord) {
           swTranslation.value = data.translation || '';
           if (!swNote.value && data.note) {
             swNote.value = data.note;
@@ -1169,6 +1651,15 @@
     cancelSaveBtn.addEventListener('click', closeQuickSave);
     saveModal.addEventListener('click', (e) => {
       if (e.target === saveModal) closeQuickSave();
+    });
+
+    deleteFromQuickBtn.addEventListener('click', () => {
+      const id = deleteFromQuickBtn.dataset.id;
+      if (id) {
+        deleteVocabEntry(id);
+        showToast('Удалено из словаря');
+        closeQuickSave();
+      }
     });
 
     swPlayBtn.addEventListener('click', () => {
@@ -1206,7 +1697,7 @@
         vocabListEl.innerHTML = `
           <div class="empty-state">
             В заметках пока пусто.<br>
-            Откройте «Текст» у любого ответа Echo и нажмите на незнакомое слово — или добавьте его выше.
+            Нажмите на любое незнакомое слово в «Чтении» или в тексте ответа Echo — либо добавьте его выше.
           </div>
         `;
         return;
@@ -1243,7 +1734,6 @@
         return;
       }
 
-      // Перемешиваем копию словаря
       fcQueue = [...vocab].sort(() => Math.random() - 0.5);
       fcTotal = fcQueue.length;
       fcKnown = 0;
@@ -1376,9 +1866,14 @@
         if (btn) btn.innerHTML = playSvg();
         activeVoiceBar = null;
       }
+      if (activeReadingPlayBtn) {
+        activeReadingPlayBtn.classList.remove('open');
+        activeReadingPlayBtn.textContent = '▶ Слушать текст';
+        activeReadingPlayBtn = null;
+      }
     }
 
-    function speakText(text, rate = 1.0, voiceBarEl = null) {
+    function speakText(text, rate = 1.0, voiceBarEl = null, readingBtnEl = null) {
       if (!('speechSynthesis' in window) || !text) return;
 
       if (voiceBarEl && activeVoiceBar === voiceBarEl) {
@@ -1399,13 +1894,24 @@
         if (btn) btn.innerHTML = stopSvg();
       }
 
+      if (readingBtnEl) {
+        activeReadingPlayBtn = readingBtnEl;
+        readingBtnEl.classList.add('open');
+        readingBtnEl.textContent = '■ Остановить';
+      }
+
       utter.onend = () => {
         if (voiceBarEl) {
           voiceBarEl.classList.remove('playing');
           const btn = voiceBarEl.querySelector('.play-btn');
           if (btn) btn.innerHTML = playSvg();
         }
+        if (readingBtnEl) {
+          readingBtnEl.classList.remove('open');
+          readingBtnEl.textContent = '▶ Слушать текст';
+        }
         if (activeVoiceBar === voiceBarEl) activeVoiceBar = null;
+        if (activeReadingPlayBtn === readingBtnEl) activeReadingPlayBtn = null;
       };
 
       utter.onerror = utter.onend;
@@ -1439,7 +1945,8 @@
           out += escapeHtml(str.slice(lastIndex, match.index));
         }
         const w = match[0];
-        out += `<span class="clickable-word" data-word="${escapeHtml(w)}">${escapeHtml(w)}</span>`;
+        const savedCls = isWordSaved(w) ? ' saved' : '';
+        out += `<span class="clickable-word${savedCls}" data-word="${escapeHtml(w)}">${escapeHtml(w)}</span>`;
         lastIndex = regex.lastIndex;
       }
       if (lastIndex < str.length) {
@@ -1485,7 +1992,7 @@
       scrollToBottom();
     }
 
-    // --- Отрисовка сообщений ---
+    // --- Отрисовка сообщений диалога ---
     function renderAiMessage(replyEn, replyRu) {
       const group = document.createElement('div');
       group.className = 'msg-group ai';
@@ -1550,7 +2057,7 @@
       chatEl.appendChild(group);
       scrollToBottom();
 
-      if (autoPlay) {
+      if (autoPlay && currentMode === 'chat') {
         speakText(replyEn, currentRate, voiceBar);
       }
     }
@@ -1613,7 +2120,7 @@
       scrollToBottom();
     }
 
-    // --- Запросы к серверу ---
+    // --- Запросы к серверу для диалога ---
     async function startConversation() {
       stopSpeech();
       history = [];
@@ -1886,9 +2393,24 @@
       if (!autoPlay) stopSpeech();
     });
 
-    restartBtn.addEventListener('click', startConversation);
-    levelSelect.addEventListener('change', startConversation);
-    topicSelect.addEventListener('change', startConversation);
+    restartBtn.addEventListener('click', () => {
+      if (currentMode === 'reading') generateReadingText();
+      else startConversation();
+    });
+
+    levelSelect.addEventListener('change', () => {
+      if (currentMode === 'reading') generateReadingText();
+      else startConversation();
+    });
+
+    topicSelect.addEventListener('change', () => {
+      if (currentMode === 'reading') {
+        customTopicInput.value = '';
+        generateReadingText();
+      } else {
+        startConversation();
+      }
+    });
 
     // Инициализация
     updateVocabBadge();
