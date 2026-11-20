@@ -148,7 +148,7 @@ If the action is starting a new conversation, set "userTranscript": "", "hasErro
       contents.push({ role: 'user', parts: userParts });
     }
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
