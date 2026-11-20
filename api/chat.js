@@ -192,7 +192,6 @@ export default async function handler(req, res) {
       history = []
     } = req.body || {};
 
-    // Мгновенный старт диалога без ожидания ИИ
     if (action === 'start') {
       const bucket = STARTERS[topic] || STARTERS['Свободная тема'];
       const pack = (level === 'A1' || level === 'A2') ? bucket.easy : bucket.mid;
@@ -267,16 +266,16 @@ Return ONLY a valid JSON object with these exact 6 keys:
       contents,
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 450,
+        maxOutputTokens: 600,
         responseMimeType: 'application/json',
         ...(thinkingConfig ? { thinkingConfig } : {})
       }
     });
 
+    // Основная быстрая модель — gemini-3.5-flash-lite, запасная — gemini-3.8-flash
     const attempts = [
-      { model: 'gemini-3.8-flash', thinking: { thinkingLevel: 'minimal' }, timeout: 12000 },
-      { model: 'gemini-2.5-flash-lite', thinking: null, timeout: 7000 },
-      { model: 'gemini-flash-latest', thinking: null, timeout: 6000 }
+      { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 16000 },
+      { model: 'gemini-3.8-flash', thinking: null, timeout: 11000 }
     ];
 
     let result = null;
@@ -285,8 +284,8 @@ Return ONLY a valid JSON object with these exact 6 keys:
     for (const attempt of attempts) {
       result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), attempt.timeout);
 
-      if (!result.ok && result.status === 400 && attempt.thinking && /thinking/i.test(result.data?.error?.message || '')) {
-        result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(attempt.timeout, 9000));
+      if (!result.ok && result.status === 400 && attempt.thinking) {
+        result = await callGemini(apiKey, attempt.model, buildPayload(null), attempt.timeout);
       }
 
       if (result.ok) break;
