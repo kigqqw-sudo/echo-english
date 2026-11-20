@@ -347,7 +347,7 @@ Return ONLY a valid JSON object with these exact 6 keys:
 `.trim();
 
     const contents = [];
-    const safeHistory = Array.isArray(history) ? history.slice(-10) : [];
+    const safeHistory = Array.isArray(history) ? history.slice(-100) : [];
 
     if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
       contents.push({
