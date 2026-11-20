@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+  <title>Echo — Разговорный английский с ИИ</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --surface-muted: #f3f4f6;
+      --text: #111827;
+      --text-secondary: #6b7280;
+      --border: #e5e7eb;
+      --accent: #111827;
+      --accent-hover: #374151;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --success: #065f46;
+      --success-bg: #ecfdf5;
+      --success-border: #a7f3d0;
+      --warn: #92400e;
+      --warn-bg: #fffbeb;
+      --warn-border: #fde68a;
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      height: 100%;
+      height: 100dvh;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      background: var(--bg);
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 16px;
+      background: rgba(250, 250, 250, 0.9);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    select, .icon-btn {
+      height: 34px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 10px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    select {
+      padding: 0 8px;
+      font-weight: 500;
+      max-width: 150px;
+    }
+
+    select:hover, .icon-btn:hover {
+      border-color: #d1d5db;
+      background: #f9fafb;
+    }
+
+    .icon-btn {
+      width: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .icon-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    /* Chat area */
+    .chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      scroll-behavior: smooth;
+    }
+
+    .msg-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 88%;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    .msg-group.user {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .msg-group.ai {
+      align-self: flex-start;
+      align-items: flex-start;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .bubble {
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      width: 100%;
+    }
+
+    .msg-group.user .bubble {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+
+    /* Audio bar inside AI bubble */
+    .voice-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 220px;
+    }
+
+    .play-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: transform 0.1s, background 0.15s;
+    }
+
+    .play-btn:active { transform: scale(0.94); }
+
+    .wave {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 22px;
+      flex: 1;
+    }
+
+    .wave span {
+      display: block;
+      width: 3px;
+      border-radius: 2px;
+      background: #d1d5db;
+      transition: background 0.2s;
+    }
+
+    .voice-bar.playing .wave span {
+      background: var(--accent);
+      animation: bounce 0.9s infinite ease-in-out;
+    }
+
+    .voice-bar.playing .wave span:nth-child(2n) { animation-delay: 0.15s; }
+    .voice-bar.playing .wave span:nth-child(3n) { animation-delay: 0.3s; }
+
+    @keyframes bounce {
+      0%, 100% { transform: scaleY(0.5); }
+      50% { transform: scaleY(1.25); }
+    }
+
+    .speed-btn {
+      border: 1px solid var(--border);
+      background: var(--surface-muted);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 7px;
+      cursor: pointer;
+    }
+
+    .toggle-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--surface-muted);
+    }
+
+    .chip-btn {
+      border: none;
+      background: var(--surface-muted);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chip-btn.open {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .hidden-box {
+      display: none;
+      margin-top: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .hidden-box.show { display: block; }
+    .hidden-box.ru { color: var(--text-secondary); font-size: 13px; }
+
+    /* User audio + transcript */
+    .user-audio {
+      width: 220px;
+      height: 32px;
+      filter: invert(1);
+    }
+
+    .user-transcript {
+      font-size: 14px;
+      line-height: 1.45;
+      margin-top: 6px;
+    }
+
+    .user-transcript.only { margin-top: 0; }
+
+    /* Feedback card */
+    .feedback {
+      font-size: 13px;
+      line-height: 1.45;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid;
+      width: 100%;
+    }
+
+    .feedback.ok {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success);
+    }
+
+    .feedback.fix {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+      color: var(--warn);
+    }
+
+    .feedback-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .correction-text {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .mini-play {
+      border: 1px solid var(--warn-border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .status-note {
+      align-self: center;
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      background: var(--surface-muted);
+      border-radius: 999px;
+    }
+
+    .error-banner {
+      align-self: center;
+      font-size: 13px;
+      color: var(--danger);
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      padding: 8px 14px;
+      border-radius: 12px;
+      text-align: center;
+    }
+
+    /* Footer / Input */
+    .footer {
+      padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .voice-panel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      position: relative;
+      min-height: 60px;
+    }
+
+    .mic-btn {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(17, 24, 39, 0.18);
+      transition: transform 0.15s, background 0.15s;
+    }
+
+    .mic-btn:hover { background: var(--accent-hover); }
+    .mic-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .mic-btn.recording {
+      background: var(--danger);
+      animation: pulse 1.4s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+      70% { box-shadow: 0 0 0 14px rgba(220, 38, 38, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+    }
+
+    .side-btn {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .side-btn.right { right: 0; }
+    .side-btn.left { left: 0; }
+
+    .rec-info {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--danger);
+    }
+
+    .rec-info.show { display: flex; }
+
+    .meter {
+      width: 54px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--danger-bg);
+      overflow: hidden;
+    }
+
+    .meter-fill {
+      height: 100%;
+      width: 10%;
+      background: var(--danger);
+      transition: width 0.08s linear;
+    }
+
+    .hint-text {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 6px;
+    }
+
+    /* Text fallback */
+    .text-panel {
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .text-panel.show { display: flex; }
+
+    .text-input {
+      flex: 1;
+      height: 44px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .text-input:focus { border-color: var(--accent); }
+
+    .send-btn {
+      height: 44px;
+      padding: 0 16px;
+      border-radius: 12px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        Echo
+      </div>
+      <div class="controls">
+        <select id="levelSelect" title="Уровень английского">
+          <option value="A1">A1 · Начальный</option>
+          <option value="A2">A2 · Базовый</option>
+          <option value="B1" selected>B1 · Средний</option>
+          <option value="B2">B2 · Выше среднего</option>
+          <option value="C1">C1 · Продвинутый</option>
+        </select>
+        <select id="topicSelect" title="Тема диалога">
+          <option value="Свободная тема">Свободная тема</option>
+          <option value="Путешествия">Путешествия</option>
+          <option value="В кафе и ресторане">В кафе</option>
+          <option value="Работа и карьера">Работа</option>
+          <option value="Хобби и фильмы">Хобби и фильмы</option>
+          <option value="Собеседование на работу">Собеседование</option>
+        </select>
+        <button id="autoPlayBtn" class="icon-btn active" title="Автоозвучка ответов">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+        </button>
+        <button id="restartBtn" class="icon-btn" title="Начать диалог заново">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="chat" class="chat"></main>
+
+    <footer class="footer">
+      <div id="voicePanel" class="voice-panel">
+        <button id="cancelRecBtn" class="side-btn left" style="display:none;" title="Отменить запись">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+
+        <div id="recInfo" class="rec-info">
+          <span id="recTimer">0:00</span>
+          <div class="meter"><div id="meterFill" class="meter-fill"></div></div>
+        </div>
+
+        <button id="micBtn" class="mic-btn" title="Нажмите, чтобы говорить">
+          <svg id="micIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        </button>
+
+        <button id="toTextBtn" class="side-btn right" title="Написать текстом">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="8" y1="12" x2="8" y2="12"></line><line x1="12" y1="12" x2="12" y2="12"></line><line x1="16" y1="12" x2="16" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
+        </button>
+      </div>
+
+      <form id="textPanel" class="text-panel">
+        <button type="button" id="toVoiceBtn" class="icon-btn" title="Вернуться к голосу">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg>
+        </button>
+        <input id="textInput" class="text-input" type="text" placeholder="Напишите фразу на английском..." autocomplete="off" />
+        <button id="sendTextBtn" class="send-btn" type="submit">Отправить</button>
+      </form>
+
+      <div id="hintText" class="hint-text">Нажмите на микрофон, чтобы ответить голосом</div>
+    </footer>
+  </div>
+
+  <script>
+    const chatEl = document.getElementById('chat');
+    const levelSelect = document.getElementById('levelSelect');
+    const topicSelect = document.getElementById('topicSelect');
+    const autoPlayBtn = document.getElementById('autoPlayBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    const voicePanel = document.getElementById('voicePanel');
+    const textPanel = document.getElementById('textPanel');
+    const micBtn = document.getElementById('micBtn');
+    const micIcon = document.getElementById('micIcon');
+    const cancelRecBtn = document.getElementById('cancelRecBtn');
+    const recInfo = document.getElementById('recInfo');
+    const recTimer = document.getElementById('recTimer');
+    const meterFill = document.getElementById('meterFill');
+    const hintText = document.getElementById('hintText');
+    const toTextBtn = document.getElementById('toTextBtn');
+    const toVoiceBtn = document.getElementById('toVoiceBtn');
+    const textInput = document.getElementById('textInput');
+    const sendTextBtn = document.getElementById('sendTextBtn');
+
+    let history = [];
+    let autoPlay = true;
+    let isBusy = false;
+    let isRecording = false;
+    let cancelRequested = false;
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let activeStream = null;
+    let audioContext = null;
+    let animFrame = null;
+    let timerInterval = null;
+    let recStartTime = 0;
+
+    let preferredVoice = null;
+    let activeVoiceBar = null;
+
+    const MAX_SECONDS = 45;
+
+    // --- Подбор лучшего английского голоса для TTS ---
+    function loadVoices() {
+      if (!('speechSynthesis' in window)) return;
+      const voices = window.speechSynthesis.getVoices();
+      const enVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('en'));
+      preferredVoice =
+        enVoices.find(v => /google us english/i.test(v.name)) ||
+        enVoices.find(v => /samantha|alex|daniel|karen/i.test(v.name)) ||
+        enVoices.find(v => v.lang === 'en-US') ||
+        enVoices[0] ||
+        null;
+    }
+
+    if ('speechSynthesis' in window) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    function stopSpeech() {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (activeVoiceBar) {
+        activeVoiceBar.classList.remove('playing');
+        const btn = activeVoiceBar.querySelector('.play-btn');
+        if (btn) btn.innerHTML = playSvg();
+        activeVoiceBar = null;
+      }
+    }
+
+    function speakText(text, rate = 1.0, voiceBarEl = null) {
+      if (!('speechSynthesis' in window) || !text) return;
+
+      // Если нажали паузу на уже играющем сообщении
+      if (voiceBarEl && activeVoiceBar === voiceBarEl) {
+        stopSpeech();
+        return;
+      }
+
+      stopSpeech();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'en-US';
+      utter.rate = rate;
+      if (preferredVoice) utter.voice = preferredVoice;
+
+      if (voiceBarEl) {
+        activeVoiceBar = voiceBarEl;
+        voiceBarEl.classList.add('playing');
+        const btn = voiceBarEl.querySelector('.play-btn');
+        if (btn) btn.innerHTML = stopSvg();
+      }
+
+      utter.onend = () => {
+        if (voiceBarEl) {
+          voiceBarEl.classList.remove('playing');
+          const btn = voiceBarEl.querySelector('.play-btn');
+          if (btn) btn.innerHTML = playSvg();
+        }
+        if (activeVoiceBar === voiceBarEl) activeVoiceBar = null;
+      };
+
+      utter.onerror = utter.onend;
+      window.speechSynthesis.speak(utter);
+    }
+
+    // Разблокировка синтеза речи на iOS Safari при первом клике
+    function primeSpeech() {
+      if ('speechSynthesis' in window) {
+        const silent = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(silent);
+      }
+    }
+
+    // --- Вспомогательные функции ---
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function playSvg() {
+      return '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>';
+    }
+
+    function stopSvg() {
+      return '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
+    }
+
+    function scrollToBottom() {
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function setBusy(state, label = '') {
+      isBusy = state;
+      micBtn.disabled = state;
+      sendTextBtn.disabled = state;
+      const existing = document.getElementById('loadingNote');
+      if (existing) existing.remove();
+
+      if (state && label) {
+        const note = document.createElement('div');
+        note.id = 'loadingNote';
+        note.className = 'status-note';
+        note.textContent = label;
+        chatEl.appendChild(note);
+        scrollToBottom();
+      }
+    }
+
+    function showError(msg) {
+      const el = document.createElement('div');
+      el.className = 'error-banner';
+      el.textContent = msg;
+      chatEl.appendChild(el);
+      scrollToBottom();
+    }
+
+    // --- Отрисовка сообщений ---
+    function renderAiMessage(replyEn, replyRu) {
+      const group = document.createElement('div');
+      group.className = 'msg-group ai';
+
+      const heights = [8, 16, 12, 20, 10, 18, 14, 22, 11, 16, 9, 14];
+      const waveBars = heights.map(h => `<span style="height:${h}px"></span>`).join('');
+
+      let currentRate = 1.0;
+
+      group.innerHTML = `
+        <div class="bubble">
+          <div class="voice-bar">
+            <button type="button" class="play-btn" title="Прослушать">${playSvg()}</button>
+            <div class="wave">${waveBars}</div>
+            <button type="button" class="speed-btn" title="Скорость речи">1.0x</button>
+          </div>
+          <div class="toggle-row">
+            <button type="button" class="chip-btn" data-toggle="en">Текст</button>
+            <button type="button" class="chip-btn" data-toggle="ru">Перевод</button>
+          </div>
+          <div class="hidden-box en">${escapeHtml(replyEn)}</div>
+          <div class="hidden-box ru">${escapeHtml(replyRu)}</div>
+        </div>
+      `;
+
+      const voiceBar = group.querySelector('.voice-bar');
+      const playBtn = group.querySelector('.play-btn');
+      const speedBtn = group.querySelector('.speed-btn');
+      const enBox = group.querySelector('.hidden-box.en');
+      const ruBox = group.querySelector('.hidden-box.ru');
+
+      playBtn.addEventListener('click', () => speakText(replyEn, currentRate, voiceBar));
+
+      speedBtn.addEventListener('click', () => {
+        currentRate = currentRate === 1.0 ? 0.8 : 1.0;
+        speedBtn.textContent = currentRate.toFixed(1) + 'x';
+        if (activeVoiceBar === voiceBar) {
+          stopSpeech();
+          speakText(replyEn, currentRate, voiceBar);
+        }
+      });
+
+      group.querySelectorAll('.chip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.toggle === 'en' ? enBox : ruBox;
+          const isOpen = target.classList.toggle('show');
+          btn.classList.toggle('open', isOpen);
+          scrollToBottom();
+        });
+      });
+
+      chatEl.appendChild(group);
+      scrollToBottom();
+
+      if (autoPlay) {
+        speakText(replyEn, currentRate, voiceBar);
+      }
+    }
+
+    function createUserBubble({ audioUrl = null, text = '' }) {
+      const group = document.createElement('div');
+      group.className = 'msg-group user';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+
+      if (audioUrl) {
+        const audio = document.createElement('audio');
+        audio.className = 'user-audio';
+        audio.controls = true;
+        audio.src = audioUrl;
+        bubble.appendChild(audio);
+      }
+
+      const transcriptEl = document.createElement('div');
+      transcriptEl.className = 'user-transcript' + (audioUrl ? '' : ' only');
+      transcriptEl.textContent = text || 'Расшифровка...';
+      bubble.appendChild(transcriptEl);
+
+      group.appendChild(bubble);
+      chatEl.appendChild(group);
+      scrollToBottom();
+
+      return { group, transcriptEl };
+    }
+
+    function appendFeedback(userGroup, data) {
+      if (!data.explanationRu && !data.correction) return;
+
+      const card = document.createElement('div');
+      if (data.hasErrors && data.correction) {
+        card.className = 'feedback fix';
+        card.innerHTML = `
+          <div class="feedback-top">
+            <span class="correction-text">Лучше: ${escapeHtml(data.correction)}</span>
+            <button type="button" class="mini-play">▶ Послушать</button>
+          </div>
+          <div>${escapeHtml(data.explanationRu)}</div>
+        `;
+        card.querySelector('.mini-play').addEventListener('click', () => {
+          speakText(data.correction, 0.9);
+        });
+      } else {
+        card.className = 'feedback ok';
+        card.textContent = '✓ ' + (data.explanationRu || 'Отлично, без ошибок!');
+      }
+
+      userGroup.appendChild(card);
+      scrollToBottom();
+    }
+
+    // --- Запросы к серверу ---
+    async function startConversation() {
+      stopSpeech();
+      history = [];
+      chatEl.innerHTML = '';
+      setBusy(true, 'Echo готовит тему...');
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'start',
+            level: levelSelect.value,
+            topic: topicSelect.value
+          })
+        });
+
+        const data = await res.json();
+        setBusy(false);
+
+        if (!res.ok) {
+          showError(data.error || 'Не удалось начать диалог.');
+          return;
+        }
+
+        history.push({ role: 'model', text: data.replyEn });
+        renderAiMessage(data.replyEn, data.replyRu);
+      } catch (e) {
+        setBusy(false);
+        showError('Ошибка сети. Проверьте подключение и попробуйте ещё раз.');
+      }
+    }
+
+    async function sendUserMessage({ audioBlob = null, mimeType = '', text = '' }) {
+      const audioUrl = audioBlob ? URL.createObjectURL(audioBlob) : null;
+      const { group, transcriptEl } = createUserBubble({ audioUrl, text });
+
+      setBusy(true, audioBlob ? 'Echo слушает и разбирает ответ...' : 'Echo думает...');
+
+      try {
+        let audioBase64 = '';
+        if (audioBlob) {
+          audioBase64 = await blobToBase64(audioBlob);
+        }
+
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'message',
+            audioBase64,
+            mimeType,
+            text,
+            level: levelSelect.value,
+            topic: topicSelect.value,
+            history
+          })
+        });
+
+        const data = await res.json();
+        setBusy(false);
+
+        if (!res.ok) {
+          transcriptEl.textContent = text || 'Не удалось распознать';
+          showError(data.error || 'Ошибка сервера.');
+          return;
+        }
+
+        const finalTranscript = data.userTranscript || text || '—';
+        transcriptEl.textContent = finalTranscript;
+        appendFeedback(group, data);
+
+        history.push({ role: 'user', text: finalTranscript });
+        history.push({ role: 'model', text: data.replyEn });
+
+        renderAiMessage(data.replyEn, data.replyRu);
+      } catch (e) {
+        setBusy(false);
+        showError('Ошибка соединения с сервером.');
+      }
+    }
+
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = String(reader.result || '');
+          const base64 = result.includes(',') ? result.split(',')[1] : result;
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    // --- Запись голоса с поддержкой iPhone (Safari) и Chrome ---
+    function getSupportedMimeType() {
+      if (typeof MediaRecorder === 'undefined') return '';
+      const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/aac',
+        'audio/ogg;codecs=opus'
+      ];
+      return candidates.find(type => MediaRecorder.isTypeSupported(type)) || '';
+    }
+
+    async function startRecording() {
+      if (isBusy || isRecording) return;
+      primeSpeech();
+      stopSpeech();
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showError('Браузер не поддерживает запись с микрофона. Используйте текстовый ввод или откройте сайт по HTTPS.');
+        return;
+      }
+
+      try {
+        activeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        showError('Нет доступа к микрофону. Разрешите доступ в настройках браузера.');
+        return;
+      }
+
+      const mimeType = getSupportedMimeType();
+      const options = mimeType ? { mimeType } : undefined;
+
+      try {
+        mediaRecorder = new MediaRecorder(activeStream, options);
+      } catch (e) {
+        mediaRecorder = new MediaRecorder(activeStream);
+      }
+
+      audioChunks = [];
+      cancelRequested = false;
+      isRecording = true;
+      recStartTime = Date.now();
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        cleanupRecording();
+        if (cancelRequested) return;
+
+        const durationSec = (Date.now() - recStartTime) / 1000;
+        if (durationSec < 0.6 || audioChunks.length === 0) {
+          hintText.textContent = 'Запись слишком короткая — нажмите и проговорите фразу целиком';
+          return;
+        }
+
+        const actualMime = mediaRecorder.mimeType || mimeType || 'audio/mp4';
+        const blob = new Blob(audioChunks, { type: actualMime });
+        sendUserMessage({ audioBlob: blob, mimeType: actualMime });
+      };
+
+      mediaRecorder.start();
+      updateRecordingUI(true);
+      startAudioMeter(activeStream);
+
+      timerInterval = setInterval(() => {
+        const sec = Math.floor((Date.now() - recStartTime) / 1000);
+        const mins = Math.floor(sec / 60);
+        const rem = String(sec % 60).padStart(2, '0');
+        recTimer.textContent = `${mins}:${rem}`;
+        if (sec >= MAX_SECONDS) {
+          stopRecording(false);
+        }
+      }, 250);
+    }
+
+    function stopRecording(cancel = false) {
+      if (!isRecording || !mediaRecorder) return;
+      cancelRequested = cancel;
+      isRecording = false;
+      if (mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+    }
+
+    function cleanupRecording() {
+      clearInterval(timerInterval);
+      cancelAnimationFrame(animFrame);
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        activeStream = null;
+      }
+      if (audioContext) {
+        audioContext.close().catch(() => {});
+        audioContext = null;
+      }
+      updateRecordingUI(false);
+    }
+
+    function updateRecordingUI(recording) {
+      micBtn.classList.toggle('recording', recording);
+      recInfo.classList.toggle('show', recording);
+      cancelRecBtn.style.display = recording ? 'inline-flex' : 'none';
+      toTextBtn.style.display = recording ? 'none' : 'inline-flex';
+      recTimer.textContent = '0:00';
+      meterFill.style.width = '10%';
+
+      if (recording) {
+        micIcon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"></rect>';
+        hintText.textContent = 'Идёт запись · нажмите ещё раз, чтобы отправить';
+      } else {
+        micIcon.innerHTML = '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line>';
+        hintText.textContent = 'Нажмите на микрофон, чтобы ответить голосом';
+      }
+    }
+
+    function startAudioMeter(stream) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioCtx();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const loop = () => {
+          if (!isRecording) return;
+          analyser.getByteFrequencyData(dataArray);
+          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const pct = Math.min(100, Math.max(10, Math.round((avg / 70) * 100)));
+          meterFill.style.width = pct + '%';
+          animFrame = requestAnimationFrame(loop);
+        };
+        loop();
+      } catch (_) {}
+    }
+
+    // --- Обработчики событий ---
+    micBtn.addEventListener('click', () => {
+      if (isRecording) stopRecording(false);
+      else startRecording();
+    });
+
+    cancelRecBtn.addEventListener('click', () => stopRecording(true));
+
+    toTextBtn.addEventListener('click', () => {
+      voicePanel.style.display = 'none';
+      textPanel.classList.add('show');
+      hintText.textContent = 'Текстовый режим · ИИ также разберёт ошибки и ответит голосом';
+      textInput.focus();
+    });
+
+    toVoiceBtn.addEventListener('click', () => {
+      textPanel.classList.remove('show');
+      voicePanel.style.display = 'flex';
+      hintText.textContent = 'Нажмите на микрофон, чтобы ответить голосом';
+    });
+
+    textPanel.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (isBusy) return;
+      const val = textInput.value.trim();
+      if (!val) return;
+      primeSpeech();
+      textInput.value = '';
+      sendUserMessage({ text: val });
+    });
+
+    autoPlayBtn.addEventListener('click', () => {
+      autoPlay = !autoPlay;
+      autoPlayBtn.classList.toggle('active', autoPlay);
+      if (!autoPlay) stopSpeech();
+    });
+
+    restartBtn.addEventListener('click', startConversation);
+    levelSelect.addEventListener('change', startConversation);
+    topicSelect.addEventListener('change', startConversation);
+
+    // Старт первой сессии
+    startConversation();
+  </script>
+</body>
+</html>
