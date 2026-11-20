@@ -249,12 +249,15 @@ export default async function handler(req, res) {
       text = '',
       word = '',
       context = '',
+      customTopic = '',
       level = 'B1',
       topic = 'Свободная тема',
       history = []
     } = req.body || {};
 
-    // Быстрый перевод слова или фразы для заметок и карточек
+    const levelDesc = LEVEL_GUIDANCE[level] || LEVEL_GUIDANCE.B1;
+
+    // 1. Быстрый перевод слова или фразы в контексте
     if (action === 'translate') {
       const cleanWord = String(word || '').trim().slice(0, 200);
       const cleanCtx = String(context || '').trim().slice(0, 400);
@@ -300,9 +303,106 @@ Return ONLY valid JSON:
       });
     }
 
-    const levelDesc = LEVEL_GUIDANCE[level] || LEVEL_GUIDANCE.B1;
+    // 2. Генерация адаптированного текста для вкладки «Чтение»
+    if (action === 'reading') {
+      const finalTopic = String(customTopic || '').trim().slice(0, 120) || topic;
+      const styles = [
+        'a short relatable story from everyday life',
+        'an interesting mini-article with surprising facts',
+        'a vivid diary entry about a memorable day',
+        'a light practical guide or life observation'
+      ];
+      const chosenStyle = pickRandom(styles);
 
-    // Разнообразный старт диалога
+      const readingPrompt = `
+Write ${chosenStyle} in English strictly adapted for a Russian learner at level: ${levelDesc}
+Topic: "${finalTopic}".
+
+Requirements:
+- Write 2 or 3 short paragraphs (total 7 to 10 natural sentences).
+- Use vocabulary and grammar appropriate for ${level}, including a few useful everyday words worth learning.
+- Split every paragraph into individual sentences, and provide a natural, accurate Russian translation for EVERY sentence.
+- No markdown, no emojis.
+
+Return ONLY valid JSON in this exact format:
+{
+  "titleEn": "Short catchy title in English",
+  "titleRu": "Russian translation of the title",
+  "paragraphs": [
+    [
+      { "en": "First English sentence.", "ru": "Первое предложение на русском." },
+      { "en": "Second English sentence.", "ru": "Второе предложение на русском." }
+    ],
+    [
+      { "en": "First sentence of paragraph two.", "ru": "Первое предложение второго абзаца." }
+    ]
+  ]
+}
+`.trim();
+
+      const buildReadPayload = (thinkingConfig) => ({
+        contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
+        generationConfig: {
+          temperature: 0.9,
+          maxOutputTokens: 1400,
+          responseMimeType: 'application/json',
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      });
+
+      const attempts = [
+        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 17000 },
+        { model: 'gemini-3.8-flash', thinking: null, timeout: 10000 }
+      ];
+
+      let result = null;
+      const errors = [];
+
+      for (const attempt of attempts) {
+        result = await callGemini(apiKey, attempt.model, buildReadPayload(attempt.thinking), attempt.timeout);
+        if (!result.ok && result.status === 400 && attempt.thinking) {
+          result = await callGemini(apiKey, attempt.model, buildReadPayload(null), attempt.timeout);
+        }
+        if (result.ok) break;
+        errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
+      }
+
+      if (!result || !result.ok) {
+        return res.status(502).json({
+          error: 'Не удалось создать текст. Детали: ' + errors.join(' | ')
+        });
+      }
+
+      const parts = result.data?.candidates?.[0]?.content?.parts || [];
+      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+      const parsed = extractJson(textPart?.text || '{}');
+
+      let paragraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
+      if (paragraphs.length === 0 && Array.isArray(parsed.sentences)) {
+        paragraphs = [parsed.sentences];
+      }
+
+      // Нормализуем структуру абзацев и предложений
+      const cleanParagraphs = paragraphs
+        .map(p => (Array.isArray(p) ? p : [p]))
+        .map(p => p.filter(s => s && typeof s.en === 'string' && s.en.trim()).map(s => ({
+          en: s.en.trim(),
+          ru: String(s.ru || '').trim()
+        })))
+        .filter(p => p.length > 0);
+
+      if (cleanParagraphs.length === 0) {
+        return res.status(502).json({ error: 'ИИ вернул пустой текст. Попробуйте нажать ещё раз.' });
+      }
+
+      return res.status(200).json({
+        titleEn: String(parsed.titleEn || finalTopic).trim(),
+        titleRu: String(parsed.titleRu || '').trim(),
+        paragraphs: cleanParagraphs
+      });
+    }
+
+    // 3. Разнообразный старт диалога
     if (action === 'start') {
       const seeds = SCENARIO_SEEDS[topic] || SCENARIO_SEEDS['Свободная тема'];
       const chosenSeed = pickRandom(seeds);
@@ -368,6 +468,7 @@ Return ONLY valid JSON:
       });
     }
 
+    // 4. Основной диалог (голос или текст)
     if (audioBase64 && audioBase64.length > MAX_AUDIO_BASE64_LENGTH) {
       return res.status(413).json({ error: 'Аудио слишком большое. Попробуйте записать сообщение короче 45 секунд.' });
     }
