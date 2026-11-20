@@ -56,9 +56,9 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      padding: 14px 16px;
-      background: rgba(250, 250, 250, 0.9);
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(250, 250, 250, 0.92);
       backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
@@ -88,7 +88,7 @@
       justify-content: flex-end;
     }
 
-    select, .icon-btn {
+    select, .icon-btn, .vocab-open-btn {
       height: 34px;
       border: 1px solid var(--border);
       background: var(--surface);
@@ -103,10 +103,10 @@
     select {
       padding: 0 8px;
       font-weight: 500;
-      max-width: 150px;
+      max-width: 145px;
     }
 
-    select:hover, .icon-btn:hover {
+    select:hover, .icon-btn:hover, .vocab-open-btn:hover {
       border-color: #d1d5db;
       background: #f9fafb;
     }
@@ -123,6 +123,33 @@
       background: var(--accent);
       color: #fff;
       border-color: var(--accent);
+    }
+
+    .vocab-open-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px;
+      font-weight: 500;
+    }
+
+    .vocab-badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .vocab-badge.empty {
+      background: var(--surface-muted);
+      color: var(--text-secondary);
     }
 
     /* Chat area */
@@ -267,11 +294,31 @@
       display: none;
       margin-top: 8px;
       font-size: 14px;
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
     .hidden-box.show { display: block; }
     .hidden-box.ru { color: var(--text-secondary); font-size: 13px; }
+
+    .clickable-word {
+      cursor: pointer;
+      border-radius: 4px;
+      padding: 0 1px;
+      border-bottom: 1px dashed #d1d5db;
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    .clickable-word:hover {
+      background: #f3f4f6;
+      border-bottom-color: var(--accent);
+    }
+
+    .word-tap-hint {
+      display: block;
+      margin-top: 6px;
+      font-size: 11px;
+      color: #9ca3af;
+    }
 
     /* User audio + transcript */
     .user-audio {
@@ -312,16 +359,24 @@
 
     .feedback-top {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 8px;
-      margin-bottom: 4px;
+      margin-bottom: 5px;
+      flex-wrap: wrap;
     }
 
     .correction-text {
       font-weight: 600;
       color: var(--text);
       font-size: 14px;
+      flex: 1;
+    }
+
+    .feedback-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
     }
 
     .mini-play {
@@ -335,6 +390,8 @@
       cursor: pointer;
       flex-shrink: 0;
     }
+
+    .mini-play:hover { background: #fefce8; }
 
     .status-note {
       align-self: center;
@@ -453,7 +510,6 @@
       margin-top: 6px;
     }
 
-    /* Text fallback */
     .text-panel {
       display: none;
       align-items: center;
@@ -462,32 +518,342 @@
 
     .text-panel.show { display: flex; }
 
-    .text-input {
-      flex: 1;
-      height: 44px;
-      padding: 0 14px;
+    .text-input, .field-input {
+      height: 42px;
+      padding: 0 12px;
       border: 1px solid var(--border);
-      border-radius: 12px;
-      font-size: 15px;
+      border-radius: 10px;
+      font-size: 14px;
       font-family: inherit;
       outline: none;
+      background: var(--surface);
+      color: var(--text);
     }
 
-    .text-input:focus { border-color: var(--accent); }
+    .text-input { flex: 1; height: 44px; font-size: 15px; border-radius: 12px; }
+    .text-input:focus, .field-input:focus { border-color: var(--accent); }
 
-    .send-btn {
-      height: 44px;
+    .send-btn, .primary-btn {
+      height: 42px;
       padding: 0 16px;
-      border-radius: 12px;
+      border-radius: 10px;
       border: none;
       background: var(--accent);
       color: #fff;
       font-size: 14px;
       font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .send-btn { height: 44px; border-radius: 12px; }
+    .send-btn:hover, .primary-btn:hover { background: var(--accent-hover); }
+    .send-btn:disabled, .primary-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .secondary-btn {
+      height: 42px;
+      padding: 0 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
       cursor: pointer;
     }
 
-    .send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .secondary-btn:hover { background: var(--surface-muted); }
+
+    /* Modal Backdrop */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 24, 39, 0.35);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 100;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      width: 100%;
+      max-width: 520px;
+      max-height: 88dvh;
+      background: var(--surface);
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: fadeIn 0.16s ease-out;
+    }
+
+    .modal.compact { max-width: 400px; }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+    }
+
+    .modal-title {
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    .modal-body {
+      padding: 16px 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface-muted);
+      padding: 4px;
+      border-radius: 10px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 7px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    /* Quick-save form */
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .field-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .word-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    /* Vocab list */
+    .add-box {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+
+    .add-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .vocab-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .vocab-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .vocab-main {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .vocab-en {
+      font-weight: 600;
+      font-size: 15px;
+      word-break: break-word;
+    }
+
+    .vocab-ru {
+      font-size: 13px;
+      color: var(--text-secondary);
+      word-break: break-word;
+    }
+
+    .vocab-note {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+
+    .vocab-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 28px 16px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* Flashcards */
+    .fc-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .fc-card {
+      min-height: 220px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+
+    .fc-card:hover { border-color: #d1d5db; }
+    .fc-card:active { transform: scale(0.985); }
+
+    .fc-card.flipped {
+      background: var(--surface);
+      border-color: var(--accent);
+    }
+
+    .fc-lang {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .fc-word {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .fc-note {
+      font-size: 13px;
+      color: var(--text-secondary);
+      max-width: 90%;
+    }
+
+    .fc-hint {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 6px;
+    }
+
+    .fc-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .fc-btn-again {
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--warn-border);
+      background: var(--warn-bg);
+      color: var(--warn);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .fc-btn-know {
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--success-border);
+      background: var(--success-bg);
+      color: var(--success);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 999px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 200;
+    }
+
+    .toast.show { opacity: 1; }
+
+    @media (max-width: 520px) {
+      .add-row { grid-template-columns: 1fr; }
+      select { max-width: 118px; }
+    }
   </style>
 </head>
 <body>
@@ -513,6 +879,9 @@
           <option value="Хобби и фильмы">Хобби и фильмы</option>
           <option value="Собеседование на работу">Собеседование</option>
         </select>
+        <button id="openVocabBtn" class="vocab-open-btn" title="Словарь и карточки">
+          Словарь <span id="vocabBadge" class="vocab-badge empty">0</span>
+        </button>
         <button id="autoPlayBtn" class="icon-btn active" title="Автоозвучка ответов">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
         </button>
@@ -556,12 +925,79 @@
     </footer>
   </div>
 
+  <!-- Быстрое сохранение слова/фразы -->
+  <div id="saveModal" class="modal-backdrop">
+    <div class="modal compact">
+      <div class="modal-header">
+        <span class="modal-title">Сохранить в заметки</span>
+        <button id="closeSaveModal" class="icon-btn" title="Закрыть">✕</button>
+      </div>
+      <form id="saveWordForm" class="modal-body">
+        <div class="field-group">
+          <div class="word-head">
+            <label class="field-label" for="swWord">Слово или фраза (EN)</label>
+            <button type="button" id="swPlayBtn" class="chip-btn">▶ Послушать</button>
+          </div>
+          <input id="swWord" class="field-input" type="text" required />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="swTranslation">Перевод (RU)</label>
+          <input id="swTranslation" class="field-input" type="text" placeholder="Загрузка перевода..." required />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="swNote">Заметка или пример (необязательно)</label>
+          <input id="swNote" class="field-input" type="text" placeholder="Например, контекст из диалога" />
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
+          <button type="button" id="cancelSaveBtn" class="secondary-btn">Отмена</button>
+          <button type="submit" class="primary-btn">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Словарь и карточки -->
+  <div id="vocabModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="tabs" style="flex:1;">
+          <button type="button" id="tabNotes" class="tab-btn active">Заметки</button>
+          <button type="button" id="tabCards" class="tab-btn">Карточки</button>
+        </div>
+        <button id="closeVocabModal" class="icon-btn" title="Закрыть">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Вкладка Заметки -->
+        <div id="notesView" style="display:flex; flex-direction:column; gap:14px;">
+          <form id="manualAddForm" class="add-box">
+            <div class="add-row">
+              <input id="manualEn" class="field-input" type="text" placeholder="Слово на английском" required />
+              <input id="manualRu" class="field-input" type="text" placeholder="Перевод на русский" required />
+            </div>
+            <div style="display:flex; gap:8px;">
+              <input id="manualNote" class="field-input" style="flex:1;" type="text" placeholder="Заметка или пример (необязательно)" />
+              <button type="submit" class="primary-btn" style="height:42px; padding:0 14px;">Добавить</button>
+            </div>
+          </form>
+          <div id="vocabList" class="vocab-list"></div>
+        </div>
+
+        <!-- Вкладка Карточки -->
+        <div id="cardsView" style="display:none; flex-direction:column; gap:14px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
   <script>
     const chatEl = document.getElementById('chat');
     const levelSelect = document.getElementById('levelSelect');
     const topicSelect = document.getElementById('topicSelect');
     const autoPlayBtn = document.getElementById('autoPlayBtn');
     const restartBtn = document.getElementById('restartBtn');
+    const openVocabBtn = document.getElementById('openVocabBtn');
+    const vocabBadge = document.getElementById('vocabBadge');
 
     const voicePanel = document.getElementById('voicePanel');
     const textPanel = document.getElementById('textPanel');
@@ -576,6 +1012,29 @@
     const toVoiceBtn = document.getElementById('toVoiceBtn');
     const textInput = document.getElementById('textInput');
     const sendTextBtn = document.getElementById('sendTextBtn');
+
+    // Modals & Vocab elements
+    const saveModal = document.getElementById('saveModal');
+    const closeSaveModal = document.getElementById('closeSaveModal');
+    const cancelSaveBtn = document.getElementById('cancelSaveBtn');
+    const saveWordForm = document.getElementById('saveWordForm');
+    const swWord = document.getElementById('swWord');
+    const swTranslation = document.getElementById('swTranslation');
+    const swNote = document.getElementById('swNote');
+    const swPlayBtn = document.getElementById('swPlayBtn');
+
+    const vocabModal = document.getElementById('vocabModal');
+    const closeVocabModal = document.getElementById('closeVocabModal');
+    const tabNotes = document.getElementById('tabNotes');
+    const tabCards = document.getElementById('tabCards');
+    const notesView = document.getElementById('notesView');
+    const cardsView = document.getElementById('cardsView');
+    const manualAddForm = document.getElementById('manualAddForm');
+    const manualEn = document.getElementById('manualEn');
+    const manualRu = document.getElementById('manualRu');
+    const manualNote = document.getElementById('manualNote');
+    const vocabListEl = document.getElementById('vocabList');
+    const toastEl = document.getElementById('toast');
 
     let history = [];
     let autoPlay = true;
@@ -595,8 +1054,301 @@
     let activeVoiceBar = null;
 
     const MAX_SECONDS = 45;
+    const VOCAB_STORAGE_KEY = 'echo_vocab_v1';
 
-    // --- Подбор лучшего английского голоса для TTS ---
+    // Состояние словаря и карточек
+    let vocab = loadVocab();
+    let fcQueue = [];
+    let fcTotal = 0;
+    let fcKnown = 0;
+    let fcFlipped = false;
+    let fcDirection = 'en-ru'; // 'en-ru' или 'ru-en'
+
+    function loadVocab() {
+      try {
+        const raw = localStorage.getItem(VOCAB_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function persistVocab() {
+      try {
+        localStorage.setItem(VOCAB_STORAGE_KEY, JSON.stringify(vocab));
+      } catch (_) {}
+      updateVocabBadge();
+    }
+
+    function updateVocabBadge() {
+      vocabBadge.textContent = String(vocab.length);
+      vocabBadge.classList.toggle('empty', vocab.length === 0);
+    }
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
+    }
+
+    function addVocabEntry(en, ru, note = '') {
+      const cleanEn = String(en || '').trim();
+      const cleanRu = String(ru || '').trim();
+      const cleanNote = String(note || '').trim();
+      if (!cleanEn || !cleanRu) return;
+
+      const existingIdx = vocab.findIndex(v => v.en.toLowerCase() === cleanEn.toLowerCase());
+      if (existingIdx !== -1) {
+        vocab[existingIdx] = { ...vocab[existingIdx], en: cleanEn, ru: cleanRu, note: cleanNote };
+        showToast('Заметка обновлена');
+      } else {
+        vocab.unshift({
+          id: Date.now() + Math.random().toString(16).slice(2, 6),
+          en: cleanEn,
+          ru: cleanRu,
+          note: cleanNote
+        });
+        showToast('Сохранено в словарь');
+      }
+      persistVocab();
+    }
+
+    function deleteVocabEntry(id) {
+      vocab = vocab.filter(item => item.id !== id);
+      persistVocab();
+      renderVocabList();
+    }
+
+    // --- Быстрое окно сохранения слова ---
+    async function openQuickSave(word, contextSentence = '', presetNote = '') {
+      swWord.value = word;
+      swTranslation.value = '';
+      swTranslation.placeholder = 'Переводим...';
+      swNote.value = presetNote;
+      saveModal.classList.add('open');
+
+      // Если слово уже есть в словаре — сразу подставим
+      const existing = vocab.find(v => v.en.toLowerCase() === word.toLowerCase());
+      if (existing) {
+        swTranslation.value = existing.ru;
+        if (!presetNote) swNote.value = existing.note || '';
+        swTranslation.placeholder = 'Перевод на русский';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'translate',
+            word,
+            context: contextSentence
+          })
+        });
+        const data = await res.json();
+        if (res.ok && swWord.value === word) {
+          swTranslation.value = data.translation || '';
+          if (!swNote.value && data.note) {
+            swNote.value = data.note;
+          }
+        }
+      } catch (_) {}
+
+      swTranslation.placeholder = 'Введите перевод вручную';
+      if (!swTranslation.value) swTranslation.focus();
+    }
+
+    function closeQuickSave() {
+      saveModal.classList.remove('open');
+    }
+
+    closeSaveModal.addEventListener('click', closeQuickSave);
+    cancelSaveBtn.addEventListener('click', closeQuickSave);
+    saveModal.addEventListener('click', (e) => {
+      if (e.target === saveModal) closeQuickSave();
+    });
+
+    swPlayBtn.addEventListener('click', () => {
+      if (swWord.value.trim()) speakText(swWord.value.trim(), 0.9);
+    });
+
+    saveWordForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      addVocabEntry(swWord.value, swTranslation.value, swNote.value);
+      closeQuickSave();
+    });
+
+    // --- Словарь и Карточки ---
+    function openVocabModal(initialTab = 'notes') {
+      vocabModal.classList.add('open');
+      switchVocabTab(initialTab);
+    }
+
+    function switchVocabTab(tab) {
+      const isNotes = tab === 'notes';
+      tabNotes.classList.toggle('active', isNotes);
+      tabCards.classList.toggle('active', !isNotes);
+      notesView.style.display = isNotes ? 'flex' : 'none';
+      cardsView.style.display = isNotes ? 'none' : 'flex';
+
+      if (isNotes) {
+        renderVocabList();
+      } else {
+        startFlashcardsSession();
+      }
+    }
+
+    function renderVocabList() {
+      if (vocab.length === 0) {
+        vocabListEl.innerHTML = `
+          <div class="empty-state">
+            В заметках пока пусто.<br>
+            Откройте «Текст» у любого ответа Echo и нажмите на незнакомое слово — или добавьте его выше.
+          </div>
+        `;
+        return;
+      }
+
+      vocabListEl.innerHTML = '';
+      for (const item of vocab) {
+        const row = document.createElement('div');
+        row.className = 'vocab-item';
+        row.innerHTML = `
+          <div class="vocab-main">
+            <div class="vocab-en">${escapeHtml(item.en)}</div>
+            <div class="vocab-ru">${escapeHtml(item.ru)}</div>
+            ${item.note ? `<div class="vocab-note">${escapeHtml(item.note)}</div>` : ''}
+          </div>
+          <div class="vocab-actions">
+            <button type="button" class="icon-btn play-item" title="Прослушать">▶</button>
+            <button type="button" class="icon-btn del-item" title="Удалить">✕</button>
+          </div>
+        `;
+        row.querySelector('.play-item').addEventListener('click', () => speakText(item.en, 0.9));
+        row.querySelector('.del-item').addEventListener('click', () => deleteVocabEntry(item.id));
+        vocabListEl.appendChild(row);
+      }
+    }
+
+    function startFlashcardsSession() {
+      if (vocab.length === 0) {
+        cardsView.innerHTML = `
+          <div class="empty-state">
+            Чтобы учить слова по карточкам, сначала сохраните хотя бы одно слово в заметки.
+          </div>
+        `;
+        return;
+      }
+
+      // Перемешиваем копию словаря
+      fcQueue = [...vocab].sort(() => Math.random() - 0.5);
+      fcTotal = fcQueue.length;
+      fcKnown = 0;
+      fcFlipped = false;
+      renderFlashcard();
+    }
+
+    function renderFlashcard() {
+      if (fcQueue.length === 0) {
+        cardsView.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:28px; margin-bottom:8px;">✓</div>
+            <strong>Все карточки пройдены!</strong><br>
+            Вы повторили ${fcTotal} ${pluralWords(fcTotal)}.
+            <div style="margin-top:16px;">
+              <button type="button" id="fcRestartBtn" class="primary-btn">Повторить заново</button>
+            </div>
+          </div>
+        `;
+        cardsView.querySelector('#fcRestartBtn').addEventListener('click', startFlashcardsSession);
+        return;
+      }
+
+      const current = fcQueue[0];
+      const showEnFront = fcDirection === 'en-ru';
+      const frontLang = showEnFront ? 'English' : 'Русский';
+      const backLang = showEnFront ? 'Русский' : 'English';
+      const frontText = showEnFront ? current.en : current.ru;
+      const backText = showEnFront ? current.ru : current.en;
+
+      cardsView.innerHTML = `
+        <div class="fc-top">
+          <span>Изучено: ${fcKnown} из ${fcTotal}</span>
+          <button type="button" id="fcDirBtn" class="chip-btn">${showEnFront ? 'EN → RU' : 'RU → EN'}</button>
+        </div>
+        <div id="fcCard" class="fc-card ${fcFlipped ? 'flipped' : ''}">
+          <div class="fc-lang">${fcFlipped ? backLang : frontLang}</div>
+          <div class="fc-word">${escapeHtml(fcFlipped ? backText : frontText)}</div>
+          ${fcFlipped && current.note ? `<div class="fc-note">${escapeHtml(current.note)}</div>` : ''}
+          <button type="button" id="fcPlayBtn" class="chip-btn">▶ Произношение</button>
+          <div class="fc-hint">${fcFlipped ? 'Нажмите, чтобы повернуть обратно' : 'Нажмите на карточку, чтобы увидеть ответ'}</div>
+        </div>
+        <div class="fc-controls">
+          <button type="button" id="fcAgainBtn" class="fc-btn-again">Повторить позже</button>
+          <button type="button" id="fcKnowBtn" class="fc-btn-know">Знаю</button>
+        </div>
+      `;
+
+      cardsView.querySelector('#fcDirBtn').addEventListener('click', () => {
+        fcDirection = fcDirection === 'en-ru' ? 'ru-en' : 'en-ru';
+        fcFlipped = false;
+        renderFlashcard();
+      });
+
+      cardsView.querySelector('#fcPlayBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        speakText(current.en, 0.9);
+      });
+
+      cardsView.querySelector('#fcCard').addEventListener('click', () => {
+        fcFlipped = !fcFlipped;
+        renderFlashcard();
+      });
+
+      cardsView.querySelector('#fcAgainBtn').addEventListener('click', () => {
+        const card = fcQueue.shift();
+        fcQueue.push(card);
+        fcFlipped = false;
+        renderFlashcard();
+      });
+
+      cardsView.querySelector('#fcKnowBtn').addEventListener('click', () => {
+        fcQueue.shift();
+        fcKnown += 1;
+        fcFlipped = false;
+        renderFlashcard();
+      });
+    }
+
+    function pluralWords(n) {
+      const mod10 = n % 10;
+      const mod100 = n % 100;
+      if (mod10 === 1 && mod100 !== 11) return 'слово';
+      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'слова';
+      return 'слов';
+    }
+
+    openVocabBtn.addEventListener('click', () => openVocabModal('notes'));
+    closeVocabModal.addEventListener('click', () => vocabModal.classList.remove('open'));
+    vocabModal.addEventListener('click', (e) => {
+      if (e.target === vocabModal) vocabModal.classList.remove('open');
+    });
+    tabNotes.addEventListener('click', () => switchVocabTab('notes'));
+    tabCards.addEventListener('click', () => switchVocabTab('cards'));
+
+    manualAddForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      addVocabEntry(manualEn.value, manualRu.value, manualNote.value);
+      manualEn.value = '';
+      manualRu.value = '';
+      manualNote.value = '';
+      renderVocabList();
+    });
+
+    // --- Озвучка (TTS) ---
     function loadVoices() {
       if (!('speechSynthesis' in window)) return;
       const voices = window.speechSynthesis.getVoices();
@@ -629,7 +1381,6 @@
     function speakText(text, rate = 1.0, voiceBarEl = null) {
       if (!('speechSynthesis' in window) || !text) return;
 
-      // Если нажали паузу на уже играющем сообщении
       if (voiceBarEl && activeVoiceBar === voiceBarEl) {
         stopSpeech();
         return;
@@ -661,7 +1412,6 @@
       window.speechSynthesis.speak(utter);
     }
 
-    // Разблокировка синтеза речи на iOS Safari при первом клике
     function primeSpeech() {
       if ('speechSynthesis' in window) {
         const silent = new SpeechSynthesisUtterance('');
@@ -676,6 +1426,26 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+    function renderClickableText(text) {
+      const str = String(text || '');
+      const regex = /[A-Za-z]+(?:['’-][A-Za-z]+)*/g;
+      let out = '';
+      let lastIndex = 0;
+      let match;
+      while ((match = regex.exec(str)) !== null) {
+        if (match.index > lastIndex) {
+          out += escapeHtml(str.slice(lastIndex, match.index));
+        }
+        const w = match[0];
+        out += `<span class="clickable-word" data-word="${escapeHtml(w)}">${escapeHtml(w)}</span>`;
+        lastIndex = regex.lastIndex;
+      }
+      if (lastIndex < str.length) {
+        out += escapeHtml(str.slice(lastIndex));
+      }
+      return out;
     }
 
     function playSvg() {
@@ -736,7 +1506,10 @@
             <button type="button" class="chip-btn" data-toggle="en">Текст</button>
             <button type="button" class="chip-btn" data-toggle="ru">Перевод</button>
           </div>
-          <div class="hidden-box en">${escapeHtml(replyEn)}</div>
+          <div class="hidden-box en">
+            ${renderClickableText(replyEn)}
+            <span class="word-tap-hint">Нажмите на любое слово, чтобы перевести и сохранить в заметки</span>
+          </div>
           <div class="hidden-box ru">${escapeHtml(replyRu)}</div>
         </div>
       `;
@@ -765,6 +1538,13 @@
           btn.classList.toggle('open', isOpen);
           scrollToBottom();
         });
+      });
+
+      enBox.addEventListener('click', (e) => {
+        const span = e.target.closest('.clickable-word');
+        if (!span) return;
+        const word = span.dataset.word;
+        if (word) openQuickSave(word, replyEn);
       });
 
       chatEl.appendChild(group);
@@ -811,12 +1591,18 @@
         card.innerHTML = `
           <div class="feedback-top">
             <span class="correction-text">Лучше: ${escapeHtml(data.correction)}</span>
-            <button type="button" class="mini-play">▶ Послушать</button>
+            <div class="feedback-actions">
+              <button type="button" class="mini-play play-fix">▶ Послушать</button>
+              <button type="button" class="mini-play save-fix">+ В заметки</button>
+            </div>
           </div>
           <div>${escapeHtml(data.explanationRu)}</div>
         `;
-        card.querySelector('.mini-play').addEventListener('click', () => {
+        card.querySelector('.play-fix').addEventListener('click', () => {
           speakText(data.correction, 0.9);
+        });
+        card.querySelector('.save-fix').addEventListener('click', () => {
+          openQuickSave(data.correction, '', data.explanationRu || '');
         });
       } else {
         card.className = 'feedback ok';
@@ -923,7 +1709,7 @@
       });
     }
 
-    // --- Запись голоса с поддержкой iPhone (Safari) и Chrome ---
+    // --- Запись голоса ---
     function getSupportedMimeType() {
       if (typeof MediaRecorder === 'undefined') return '';
       const candidates = [
@@ -1104,7 +1890,8 @@
     levelSelect.addEventListener('change', startConversation);
     topicSelect.addEventListener('change', startConversation);
 
-    // Старт первой сессии
+    // Инициализация
+    updateVocabBadge();
     startConversation();
   </script>
 </body>
