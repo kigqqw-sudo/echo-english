@@ -38,23 +38,128 @@ const LEVEL_GUIDANCE = {
   C1: 'Advanced (C1). Speak like an educated native speaker with nuanced vocabulary and natural idioms.'
 };
 
-async function callGemini(apiKey, payload) {
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const text = await res.text();
-  let data = {};
-  try {
-    data = JSON.parse(text);
-  } catch (_) {
-    data = { error: { message: text.slice(0, 300) || `HTTP ${res.status}` } };
+const STARTERS = {
+  'Свободная тема': {
+    easy: {
+      en: 'Hi! I am Echo. How are you today, and what did you do this morning?',
+      ru: 'Привет! Я Echo. Как ты сегодня и чем занимался этим утром?'
+    },
+    mid: {
+      en: 'Hey! Nice to talk to you. How has your week been going so far?',
+      ru: 'Привет! Рад пообщаться. Как проходит твоя неделя?'
+    }
+  },
+  'Путешествия': {
+    easy: {
+      en: 'Hi! Do you like to travel? What city or country do you want to visit?',
+      ru: 'Привет! Тебе нравится путешествовать? Какой город или страну ты хочешь посетить?'
+    },
+    mid: {
+      en: 'Hey! Let us talk about travel. What is the most memorable trip you have ever taken?',
+      ru: 'Привет! Давай поговорим о путешествиях. Какая поездка запомнилась тебе больше всего?'
+    }
+  },
+  'В кафе и ресторане': {
+    easy: {
+      en: 'Hello! Welcome to our cafe. What would you like to eat or drink today?',
+      ru: 'Здравствуйте! Добро пожаловать в наше кафе. Что вы хотите съесть или выпить сегодня?'
+    },
+    mid: {
+      en: 'Hi there, welcome in! Can I start you off with a coffee or something to eat?',
+      ru: 'Привет, добро пожаловать! Принести вам для начала кофе или что-нибудь перекусить?'
+    }
+  },
+  'Работа и карьера': {
+    easy: {
+      en: 'Hi! What do you do for work or study? Do you like it?',
+      ru: 'Привет! Кем ты работаешь или на кого учишься? Тебе нравится?'
+    },
+    mid: {
+      en: 'Hey! Tell me a bit about what you do or what kind of career you are interested in.',
+      ru: 'Привет! Расскажи немного о том, чем ты занимаешься или какая карьера тебе интересна.'
+    }
+  },
+  'Хобби и фильмы': {
+    easy: {
+      en: 'Hi! What do you like to do in your free time? Do you like watching movies?',
+      ru: 'Привет! Чем ты любишь заниматься в свободное время? Любишь смотреть фильмы?'
+    },
+    mid: {
+      en: 'Hey! Have you watched any good movies or series lately, or picked up a new hobby?',
+      ru: 'Привет! Смотрел какие-нибудь хорошие фильмы или сериалы в последнее время, или появилось новое хобби?'
+    }
+  },
+  'Собеседование на работу': {
+    easy: {
+      en: 'Hello! Thanks for coming today. Can you tell me a little about yourself?',
+      ru: 'Здравствуйте! Спасибо, что пришли сегодня. Можете немного рассказать о себе?'
+    },
+    mid: {
+      en: 'Hello, thanks for joining me today. To start, could you briefly tell me about yourself and your main strengths?',
+      ru: 'Здравствуйте, спасибо, что присоединились. Для начала расскажите коротко о себе и своих сильных сторонах.'
+    }
   }
+};
 
-  return { ok: res.ok, status: res.status, data };
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callGemini(apiKey, model, payload, timeoutMs) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      },
+      timeoutMs
+    );
+
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { error: { message: text.slice(0, 200) || `HTTP ${res.status}` } };
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    const timedOut = err?.name === 'AbortError';
+    return {
+      ok: false,
+      status: timedOut ? 504 : 500,
+      data: {
+        error: {
+          message: timedOut
+            ? `таймаут ${Math.round(timeoutMs / 1000)}с`
+            : (err?.message || 'ошибка сети')
+        }
+      }
+    };
+  }
+}
+
+function extractJson(rawText) {
+  const cleaned = String(rawText || '').replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (_) {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('ИИ вернул ответ в неожиданном формате.');
+  }
 }
 
 export default async function handler(req, res) {
@@ -64,9 +169,7 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({
-      error: 'На сервере не настроен GEMINI_API_KEY.'
-    });
+    return res.status(500).json({ error: 'На сервере не настроен GEMINI_API_KEY.' });
   }
 
   const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
@@ -89,127 +192,130 @@ export default async function handler(req, res) {
       history = []
     } = req.body || {};
 
+    // Мгновенный старт диалога без ожидания ИИ
+    if (action === 'start') {
+      const bucket = STARTERS[topic] || STARTERS['Свободная тема'];
+      const pack = (level === 'A1' || level === 'A2') ? bucket.easy : bucket.mid;
+      return res.status(200).json({
+        userTranscript: '',
+        hasErrors: false,
+        correction: '',
+        explanationRu: '',
+        replyEn: pack.en,
+        replyRu: pack.ru
+      });
+    }
+
     if (audioBase64 && audioBase64.length > MAX_AUDIO_BASE64_LENGTH) {
       return res.status(413).json({ error: 'Аудио слишком большое. Попробуйте записать сообщение короче 45 секунд.' });
     }
 
-    if (action === 'message' && !audioBase64 && !String(text).trim()) {
+    if (!audioBase64 && !String(text).trim()) {
       return res.status(400).json({ error: 'Пустое сообщение.' });
     }
 
     const levelDesc = LEVEL_GUIDANCE[level] || LEVEL_GUIDANCE.B1;
 
     const systemInstruction = `
-You are Echo, a friendly, concise spoken English tutor for Russian-speaking learners.
+You are Echo, a friendly spoken English tutor for Russian-speaking learners.
 Student level: ${levelDesc}
-Conversation topic: "${topic}".
+Topic: "${topic}".
 
-Your job on every user message:
-1. Transcribe accurately what the user said in English (put in "userTranscript"). If they spoke Russian or unintelligible noise, note it gently.
-2. Evaluate their English for grammar, word choice, prepositions, articles, or unnatural phrasing:
-   - If there is an error or a noticeably unnatural phrasing, set "hasErrors": true, write a natural corrected version in "correction", and explain the mistake briefly and clearly in Russian in "explanationRu" (1-2 short sentences, friendly tone).
-   - If the phrase is correct and natural for their level, set "hasErrors": false, "correction": "", and write a short encouraging note in Russian in "explanationRu".
-3. Continue the conversation naturally in English in "replyEn" (1-3 short conversational sentences suited to ${level}, ending with a light follow-up question). No markdown or emojis in "replyEn".
-4. Provide an accurate, natural Russian translation of "replyEn" in "replyRu".
-
-If starting a new conversation, set "userTranscript": "", "hasErrors": false, "correction": "", "explanationRu": "", and greet the user warmly in "replyEn" with an easy opening question on the topic "${topic}".
+Return ONLY a valid JSON object with these exact 6 keys:
+{
+  "userTranscript": "exact English transcription of what the student said",
+  "hasErrors": true or false,
+  "correction": "natural corrected English sentence if hasErrors is true, else empty string",
+  "explanationRu": "short friendly explanation in Russian (1-2 sentences) if hasErrors is true, else short praise in Russian",
+  "replyEn": "natural conversational reply in English (1-2 short sentences + a light follow-up question, no markdown or emojis)",
+  "replyRu": "natural Russian translation of replyEn"
+}
 `.trim();
 
     const contents = [];
-    const safeHistory = Array.isArray(history) ? history.slice(-12) : [];
+    const safeHistory = Array.isArray(history) ? history.slice(-10) : [];
 
-    if (action === 'start') {
+    if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
       contents.push({
         role: 'user',
-        parts: [{ text: `Start a new spoken English practice session on the topic "${topic}" for level ${level}.` }]
+        parts: [{ text: `Let's practice English on the topic "${topic}".` }]
       });
-    } else {
-      if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
-        contents.push({
-          role: 'user',
-          parts: [{ text: `Let's practice English on the topic "${topic}".` }]
-        });
-      }
-
-      for (const item of safeHistory) {
-        if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
-          contents.push({
-            role: item.role,
-            parts: [{ text: item.text.slice(0, 1000) }]
-          });
-        }
-      }
-
-      const userParts = [];
-      if (audioBase64) {
-        const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
-        userParts.push({
-          text: 'Listen to the student audio, transcribe it, check for mistakes, and respond naturally.'
-        });
-        userParts.push({
-          inline_data: {
-            mime_type: cleanMime,
-            data: audioBase64
-          }
-        });
-      } else {
-        userParts.push({
-          text: `Student message: "${String(text).trim().slice(0, 1000)}". Check for mistakes and respond naturally.`
-        });
-      }
-
-      contents.push({ role: 'user', parts: userParts });
     }
 
-    const baseGenerationConfig = {
-      temperature: 0.7,
-      maxOutputTokens: 512,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          userTranscript: { type: 'STRING' },
-          hasErrors: { type: 'BOOLEAN' },
-          correction: { type: 'STRING' },
-          explanationRu: { type: 'STRING' },
-          replyEn: { type: 'STRING' },
-          replyRu: { type: 'STRING' }
-        },
-        required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyEn', 'replyRu']
+    for (const item of safeHistory) {
+      if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
+        contents.push({
+          role: item.role,
+          parts: [{ text: item.text.slice(0, 800) }]
+        });
       }
-    };
+    }
+
+    const userParts = [];
+    if (audioBase64) {
+      const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
+      userParts.push({ text: 'Listen to the student audio, transcribe it, check for mistakes, and respond in JSON.' });
+      userParts.push({ inline_data: { mime_type: cleanMime, data: audioBase64 } });
+    } else {
+      userParts.push({ text: `Student message: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond in JSON.` });
+    }
+
+    contents.push({ role: 'user', parts: userParts });
 
     const buildPayload = (thinkingConfig) => ({
       system_instruction: { parts: [{ text: systemInstruction }] },
       contents,
-      generationConfig: thinkingConfig
-        ? { ...baseGenerationConfig, thinkingConfig }
-        : baseGenerationConfig
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 450,
+        responseMimeType: 'application/json',
+        ...(thinkingConfig ? { thinkingConfig } : {})
+      }
     });
 
-    // Пробуем отключить долгое размышление, чтобы ответ приходил за 1-2 секунды
-    let result = await callGemini(apiKey, buildPayload({ thinkingBudget: 0 }));
+    const attempts = [
+      { model: 'gemini-3.8-flash', thinking: { thinkingLevel: 'minimal' }, timeout: 12000 },
+      { model: 'gemini-2.5-flash-lite', thinking: null, timeout: 7000 },
+      { model: 'gemini-flash-latest', thinking: null, timeout: 6000 }
+    ];
 
-    if (!result.ok && result.status === 400 && /thinking/i.test(result.data?.error?.message || '')) {
-      result = await callGemini(apiKey, buildPayload({ thinkingLevel: 'minimal' }));
+    let result = null;
+    const errors = [];
+
+    for (const attempt of attempts) {
+      result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), attempt.timeout);
+
+      if (!result.ok && result.status === 400 && attempt.thinking && /thinking/i.test(result.data?.error?.message || '')) {
+        result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(attempt.timeout, 9000));
+      }
+
+      if (result.ok) break;
+      errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
     }
 
-    if (!result.ok && result.status === 400 && /thinking/i.test(result.data?.error?.message || '')) {
-      result = await callGemini(apiKey, buildPayload(null));
+    if (!result || !result.ok) {
+      return res.status(502).json({
+        error: 'Не удалось получить ответ от ИИ. Детали: ' + errors.join(' | ')
+      });
     }
 
-    if (!result.ok) {
-      const apiErr = result.data?.error?.message || `Ошибка Gemini API (${result.status}).`;
-      return res.status(result.status).json({ error: apiErr });
-    }
+    const parts = result.data?.candidates?.[0]?.content?.parts || [];
+    const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+    const rawText = textPart?.text || '';
 
-    const rawText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) {
-      return res.status(502).json({ error: 'ИИ вернул пустой ответ. Попробуйте ещё раз.' });
+      return res.status(502).json({ error: 'ИИ вернул пустой ответ. Попробуйте сказать фразу ещё раз.' });
     }
 
-    const parsed = JSON.parse(rawText);
-    return res.status(200).json(parsed);
+    const parsed = extractJson(rawText);
+    return res.status(200).json({
+      userTranscript: parsed.userTranscript || text || '',
+      hasErrors: Boolean(parsed.hasErrors),
+      correction: parsed.correction || '',
+      explanationRu: parsed.explanationRu || '',
+      replyEn: parsed.replyEn || 'Could you say that again?',
+      replyRu: parsed.replyRu || 'Не могли бы вы повторить это ещё раз?'
+    });
   } catch (err) {
     console.error('Chat API error:', err);
     return res.status(500).json({ error: 'Ошибка сервера: ' + (err?.message || 'попробуйте ещё раз.') });
