@@ -167,24 +167,6 @@ const FALLBACK_STARTERS_BY_LANG = {
   ]
 };
 
-// Расширенная цепочка моделей: при 503/404 сервер за доли секунды переходит к следующей
-const MODELS_HEAVY = [
-  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 9000 },
-  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 9000 },
-  { model: 'gemini-flash-lite-latest', thinking: { thinkingBudget: 0 }, timeout: 8000 },
-  { model: 'gemini-2.5-flash', thinking: { thinkingBudget: 0 }, timeout: 8000 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 7000 },
-  { model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 7000 }
-];
-
-const MODELS_FAST = [
-  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 5500 },
-  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 5500 },
-  { model: 'gemini-flash-lite-latest', thinking: { thinkingBudget: 0 }, timeout: 5000 },
-  { model: 'gemini-2.5-flash', thinking: { thinkingBudget: 0 }, timeout: 5000 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 5000 }
-];
-
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -236,8 +218,122 @@ async function callGemini(apiKey, model, payload, timeoutMs) {
   }
 }
 
+function mergeSystemIntoUser(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+  const sysParts = messages.filter(m => m.role === 'system').map(m => m.content);
+  if (sysParts.length === 0) return messages;
+
+  const rest = messages.filter(m => m.role !== 'system').map(m => ({ ...m }));
+  const sysText = sysParts.join('\n\n');
+  if (rest.length > 0 && rest[0].role === 'user') {
+    rest[0].content = `${sysText}\n\n${rest[0].content}`;
+  } else {
+    rest.unshift({ role: 'user', content: sysText });
+  }
+  return rest;
+}
+
+async function callOpenAiCompatible({ url, apiKey, model, messages, temperature = 0.7, maxTokens = 2000, jsonMode = false, extraHeaders = {} }, timeoutMs) {
+  const body = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
+  };
+
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          ...extraHeaders
+        },
+        body: JSON.stringify(body)
+      },
+      timeoutMs
+    );
+
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { error: { message: text.slice(0, 200) || `HTTP ${res.status}` } };
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    const timedOut = err?.name === 'AbortError';
+    return {
+      ok: false,
+      status: timedOut ? 504 : 500,
+      data: {
+        error: {
+          message: timedOut
+            ? `таймаут ${Math.round(timeoutMs / 1000)}с`
+            : (err?.message || 'ошибка сети')
+        }
+      }
+    };
+  }
+}
+
+async function transcribeWithGroq(groqKey, audioBase64, mimeType, langCode, timeoutMs = 8000) {
+  const url = 'https://api.groq.com/openai/v1/audio/transcriptions';
+  try {
+    const cleanMime = String(mimeType || 'audio/webm').split(';')[0].trim() || 'audio/webm';
+    const ext = cleanMime.includes('mp4') || cleanMime.includes('m4a')
+      ? 'm4a'
+      : cleanMime.includes('ogg')
+        ? 'ogg'
+        : cleanMime.includes('mpeg') || cleanMime.includes('mp3')
+          ? 'mp3'
+          : 'webm';
+
+    const buffer = Buffer.from(audioBase64, 'base64');
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: cleanMime }), `audio.${ext}`);
+    form.append('model', 'whisper-large-v3-turbo');
+    form.append('language', langCode);
+
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${groqKey}` },
+        body: form
+      },
+      timeoutMs
+    );
+
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { error: { message: text.slice(0, 200) || `HTTP ${res.status}` } };
+    }
+
+    if (!res.ok) {
+      return { ok: false, error: shortErrorText(data?.error?.message, res.status) };
+    }
+
+    return { ok: true, text: String(data.text || '').trim() };
+  } catch (err) {
+    const timedOut = err?.name === 'AbortError';
+    return { ok: false, error: timedOut ? 'таймаут Whisper' : (err?.message || 'ошибка Whisper') };
+  }
+}
+
 function extractJson(rawText) {
-  const cleaned = String(rawText || '').replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+  const cleaned = String(rawText || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```json\s*/gi, '')
+    .replace(/```/g, '')
+    .trim();
   try {
     return JSON.parse(cleaned);
   } catch (_) {
@@ -252,52 +348,189 @@ function extractJson(rawText) {
 
 function shortErrorText(msg, status) {
   const clean = String(msg || status || '').replace(/\s+/g, ' ').trim();
-  if (/high demand|overloaded|unavailable/i.test(clean)) return '503 перегрузка';
-  if (/not found|no longer available/i.test(clean) || status === 404) return '404 недоступна';
-  if (/quota|rate limit|resource exhausted/i.test(clean) || status === 429) return '429 лимит';
+  if (/high demand|overloaded|unavailable/i.test(clean) || status === 503) return '503 перегрузка';
+  if (/not found|no longer available|no endpoints/i.test(clean) || status === 404) return '404 недоступна';
+  if (/quota|rate limit|resource exhausted|limit/i.test(clean) || status === 429) return '429 лимит';
+  if (/invalid api key|unauthorized|bad credentials|user not found/i.test(clean) || status === 401) return '401 неверный ключ';
+  if (status === 403 || /permission|forbidden/i.test(clean)) return '403 нет прав Models';
   return clean.length > 55 ? clean.slice(0, 55) + '…' : clean;
 }
 
-async function runGeminiTask({ apiKey, buildPayload, models, totalBudgetMs = 25000, parseResult }) {
+// Цепочка: Gemini → GitHub Models (GPT-4.1-mini / GPT-4o-mini) → OpenRouter / Groq → Gemini fallback
+async function runTextTask({
+  geminiKey,
+  githubToken,
+  openRouterKey,
+  groqKey,
+  buildGeminiPayload,
+  chatMessages,
+  temperature = 0.7,
+  maxTokens = 2000,
+  totalBudgetMs = 25000,
+  parseResult
+}) {
   const deadline = Date.now() + totalBudgetMs;
   const errors = [];
 
-  for (const attempt of models) {
+  const steps = [];
+  if (geminiKey) {
+    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 5500 });
+  }
+  if (githubToken) {
+    steps.push({
+      provider: 'github',
+      url: 'https://models.github.ai/inference/chat/completions',
+      model: 'openai/gpt-4.1-mini',
+      jsonMode: true,
+      timeout: 11000
+    });
+    steps.push({
+      provider: 'github',
+      url: 'https://models.github.ai/inference/chat/completions',
+      model: 'openai/gpt-4o-mini',
+      jsonMode: true,
+      timeout: 10000
+    });
+    steps.push({
+      provider: 'github',
+      url: 'https://models.inference.ai.azure.com/chat/completions',
+      model: 'gpt-4o-mini',
+      jsonMode: true,
+      timeout: 9000
+    });
+  }
+  if (openRouterKey) {
+    steps.push({ provider: 'openrouter', model: 'openrouter/free', timeout: 10000 });
+    steps.push({ provider: 'openrouter', model: 'google/gemma-3-27b-it:free', mergeSystem: true, timeout: 9000 });
+  }
+  if (groqKey) {
+    steps.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', timeout: 10000 });
+  }
+  if (geminiKey) {
+    steps.push({ provider: 'gemini', model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 6500 });
+  }
+
+  for (const step of steps) {
     const remaining = deadline - Date.now();
     if (remaining < 2000) break;
+    const timeout = Math.min(step.timeout, remaining);
 
-    const timeout = Math.min(attempt.timeout, remaining);
-    let result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), timeout);
+    let rawText = '';
 
-    if (!result.ok && result.status === 400 && attempt.thinking) {
-      const rem2 = deadline - Date.now();
-      if (rem2 >= 2000) {
-        result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(6500, rem2));
+    if (step.provider === 'gemini') {
+      let result = await callGemini(geminiKey, step.model, buildGeminiPayload(step.thinking), timeout);
+      if (!result.ok && result.status === 400 && step.thinking) {
+        const rem2 = deadline - Date.now();
+        if (rem2 >= 2000) {
+          result = await callGemini(geminiKey, step.model, buildGeminiPayload(null), Math.min(timeout, rem2));
+        }
       }
+      if (!result.ok) {
+        errors.push(`${step.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
+        continue;
+      }
+      const parts = result.data?.candidates?.[0]?.content?.parts || [];
+      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+      rawText = textPart?.text || '';
+    } else if (step.provider === 'github') {
+      const ghHeaders = step.url.includes('models.github.ai')
+        ? { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+        : {};
+      let result = await callOpenAiCompatible(
+        {
+          url: step.url,
+          apiKey: githubToken,
+          model: step.model,
+          messages: chatMessages,
+          temperature,
+          maxTokens: Math.min(maxTokens, 4096),
+          jsonMode: Boolean(step.jsonMode),
+          extraHeaders: ghHeaders
+        },
+        timeout
+      );
+      if (!result.ok && result.status === 400 && step.jsonMode) {
+        const rem2 = deadline - Date.now();
+        if (rem2 >= 2000) {
+          result = await callOpenAiCompatible(
+            {
+              url: step.url,
+              apiKey: githubToken,
+              model: step.model,
+              messages: chatMessages,
+              temperature,
+              maxTokens: Math.min(maxTokens, 4096),
+              jsonMode: false,
+              extraHeaders: ghHeaders
+            },
+            Math.min(timeout, rem2)
+          );
+        }
+      }
+      if (!result.ok) {
+        const shortName = step.model.split('/').pop();
+        errors.push(`gh/${shortName}: ${shortErrorText(result.data?.error?.message, result.status)}`);
+        continue;
+      }
+      rawText = result.data?.choices?.[0]?.message?.content || '';
+    } else if (step.provider === 'openrouter') {
+      const msgs = step.mergeSystem ? mergeSystemIntoUser(chatMessages) : chatMessages;
+      const result = await callOpenAiCompatible(
+        {
+          url: 'https://openrouter.ai/api/v1/chat/completions',
+          apiKey: openRouterKey,
+          model: step.model,
+          messages: msgs,
+          temperature,
+          maxTokens: Math.min(maxTokens, 4096),
+          jsonMode: false,
+          extraHeaders: {
+            'HTTP-Referer': 'https://echo-english-inky.vercel.app',
+            'X-Title': 'Echo Language Platform'
+          }
+        },
+        timeout
+      );
+      if (!result.ok) {
+        const shortName = step.model.split('/').pop();
+        errors.push(`or/${shortName}: ${shortErrorText(result.data?.error?.message, result.status)}`);
+        continue;
+      }
+      rawText = result.data?.choices?.[0]?.message?.content || '';
+    } else if (step.provider === 'groq') {
+      const result = await callOpenAiCompatible(
+        {
+          url: 'https://api.groq.com/openai/v1/chat/completions',
+          apiKey: groqKey,
+          model: step.model,
+          messages: chatMessages,
+          temperature,
+          maxTokens: Math.min(maxTokens, 4096),
+          jsonMode: true
+        },
+        timeout
+      );
+      if (!result.ok) {
+        errors.push(`groq/${step.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
+        continue;
+      }
+      rawText = result.data?.choices?.[0]?.message?.content || '';
     }
 
-    if (!result.ok) {
-      errors.push(`${attempt.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
+    if (!rawText) {
+      errors.push(`${step.model}: пустой ответ`);
       continue;
     }
 
     try {
-      const parts = result.data?.candidates?.[0]?.content?.parts || [];
-      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-      const rawText = textPart?.text || '';
-      if (!rawText) {
-        errors.push(`${attempt.model}: пустой ответ`);
-        continue;
-      }
-
       const parsed = extractJson(rawText);
       const value = parseResult ? parseResult(parsed) : parsed;
       if (value) {
-        return { ok: true, value, model: attempt.model };
+        return { ok: true, value, model: step.model };
       }
-      errors.push(`${attempt.model}: неполный ответ`);
+      errors.push(`${step.model}: неполный ответ`);
     } catch (_) {
-      errors.push(`${attempt.model}: ошибка формата`);
+      errors.push(`${step.model}: ошибка формата`);
     }
   }
 
@@ -317,9 +550,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Метод не поддерживается.' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'На сервере не настроен GEMINI_API_KEY.' });
+  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const githubToken = process.env.GITHUB_TOKEN || '';
+  const openRouterKey = process.env.OPENROUTER_API_KEY || '';
+  const groqKey = process.env.GROQ_API_KEY || '';
+
+  if (!geminiKey && !githubToken && !openRouterKey && !groqKey) {
+    return res.status(500).json({ error: 'На сервере не настроены ключи ИИ (GEMINI_API_KEY или GITHUB_TOKEN).' });
   }
 
   const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
@@ -362,15 +599,25 @@ export default async function handler(req, res) {
 
       const trPrompt = `
 Translate the ${lang.enName} word or phrase "${cleanWord}" into Russian${cleanCtx ? ` as used in the sentence: "${cleanCtx}"` : ''}.
-Give a concise Russian translation (1-3 words) in "translation", and a very short usage note or reading hint in "note" (max 12 words, or empty string).
 ${lang.scriptHint || ''}
+
+Return ONLY a valid JSON object with no extra text:
+{
+  "translation": "concise Russian translation (1-3 words)",
+  "note": "very short usage note or reading hint (max 12 words, or empty string)"
+}
 `.trim();
 
-      const task = await runGeminiTask({
-        apiKey,
-        models: MODELS_FAST,
+      const task = await runTextTask({
+        geminiKey,
+        githubToken,
+        openRouterKey,
+        groqKey,
+        temperature: 0.3,
+        maxTokens: 250,
         totalBudgetMs: 16000,
-        buildPayload: (thinkingConfig) => ({
+        chatMessages: [{ role: 'user', content: trPrompt }],
+        buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
           generationConfig: {
             temperature: 0.3,
@@ -411,29 +658,46 @@ Student level: ${levelDesc}
 Grammar topic: "${targetTopic}"
 ${lang.extraNote}
 
-Create a thorough, comprehensive, easy-to-understand grammar guide in Russian covering the ENTIRE topic in ${lang.enName} (never leave out negative forms, questions, or key rules!), plus 5 interactive exercises strictly suited to level ${level}:
+Create a thorough, easy-to-understand grammar guide in Russian covering the ENTIRE topic in ${lang.enName} (never leave out negative forms, questions, or key rules!), plus 5 interactive exercises strictly suited to level ${level}.
 
-1. "topicTitle": clear title (${lang.enName} term + Russian explanation).
-2. "whenToUseRu": 3-4 concise bullet points in plain Russian explaining all main situations when this grammar is used in real life.
-3. "sections": 3 to 4 detailed sub-sections covering EVERY major part of the topic:
-   - If the topic is a tense or verb construction, include separate sections for:
-     (1) Утверждение (+)
-     (2) Отрицание (−)
-     (3) Вопросы (?) и ответы
-     (4) Важные правила, окончания и нюансы.
-   - If the topic is non-tense (articles, cases, particles, prepositions, conditionals, modals, etc.), break it into 3-4 complete logical blocks covering all core cases and exceptions.
-   - For EACH section provide:
-     * "headingRu": clear Russian heading
-     * "formula": clear compact formula (or empty string if not applicable)
-     * "explanationRu": thorough, friendly explanation in plain Russian (2-4 sentences, no dry academic jargon)
-     * "examples": 2-3 natural everyday examples in ${lang.enName} ("target") with Russian translation ("ru").
-4. "markers": 4 to 7 helpful signal words, particles, or trigger phrases in ${lang.enName} with short Russian translations.
-5. "commonMistakes": 2 to 3 typical mistakes Russian speakers make on this topic in ${lang.enName}, each with "wrongTarget", "rightTarget", and a short clear "explanationRu".
-6. "exercises": exactly 5 varied exercises in ${lang.enName} testing DIFFERENT aspects of the topic (mix affirmative, negative, questions, and tricky cases!):
-   - First 3 exercises: "type": "choice" with exactly 4 distinct options in "options" in ${lang.enName} (one is the exact "answer").
-   - Last 2 exercises: "type": "input" where the student types 1-3 words in ${lang.enName} for the gap "___" (give a clear cue in "hint" and set "options": []).
-   - Every exercise MUST include "sentence" in ${lang.enName} containing "___", exact "answer" in ${lang.enName}, "fullSentence" in ${lang.enName}, "translationRu", and "explanationRu" (1-2 clear sentences in Russian explaining why).
-   - No markdown symbols (no *, **, #) and no emojis anywhere.
+Requirements:
+- "whenToUseRu": 3-4 concise points in plain Russian explaining main situations when this grammar is used.
+- "sections": 3-4 detailed blocks covering EVERY major part of the topic (for tenses: Утверждение (+), Отрицание (−), Вопросы (?) и ответы, Важные правила и нюансы). Each block has "headingRu", "formula", "explanationRu" (2-4 clear Russian sentences), and 2-3 "examples" with "target" (${lang.enName}) and "ru".
+- "markers": 4-7 signal words/phrases in ${lang.enName} with short Russian translations.
+- "commonMistakes": 2-3 typical mistakes Russian speakers make, with "wrongTarget", "rightTarget", "explanationRu".
+- "exercises": exactly 5 varied exercises in ${lang.enName} (mix affirmative, negative, questions). First 3 have "type": "choice" with 4 distinct "options"; last 2 have "type": "input" with "options": [] and a clear "hint". Every exercise has "sentence" containing "___", exact "answer", "fullSentence", "translationRu", "explanationRu".
+- No markdown symbols (*, **, #) and no emojis anywhere.
+
+Return ONLY a valid JSON object with no extra text before or after it:
+{
+  "topicTitle": "string",
+  "whenToUseRu": ["string"],
+  "sections": [
+    {
+      "headingRu": "string",
+      "formula": "string",
+      "explanationRu": "string",
+      "examples": [{ "target": "string", "ru": "string" }]
+    }
+  ],
+  "markers": ["string"],
+  "commonMistakes": [
+    { "wrongTarget": "string", "rightTarget": "string", "explanationRu": "string" }
+  ],
+  "exercises": [
+    {
+      "type": "choice",
+      "promptRu": "string",
+      "sentence": "string with ___",
+      "hint": "string",
+      "options": ["a", "b", "c", "d"],
+      "answer": "string",
+      "fullSentence": "string",
+      "translationRu": "string",
+      "explanationRu": "string"
+    }
+  ]
+}
 `.trim();
 
       const grammarSchema = {
@@ -499,11 +763,16 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
         required: ['topicTitle', 'whenToUseRu', 'sections', 'markers', 'commonMistakes', 'exercises']
       };
 
-      const task = await runGeminiTask({
-        apiKey,
-        models: MODELS_HEAVY,
+      const task = await runTextTask({
+        geminiKey,
+        githubToken,
+        openRouterKey,
+        groqKey,
+        temperature: 0.7,
+        maxTokens: 4000,
         totalBudgetMs: 25000,
-        buildPayload: (thinkingConfig) => ({
+        chatMessages: [{ role: 'user', content: grammarPrompt }],
+        buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
           generationConfig: {
             temperature: 0.7,
@@ -521,8 +790,8 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
               formula: String(s.formula || '').trim(),
               explanationRu: String(s.explanationRu || '').trim(),
               examples: (Array.isArray(s.examples) ? s.examples : [])
-                .filter(e => e && e.target)
-                .map(e => ({ target: String(e.target).trim(), ru: String(e.ru || '').trim() }))
+                .filter(e => e && (e.target || e.en))
+                .map(e => ({ target: String(e.target || e.en).trim(), ru: String(e.ru || '').trim() }))
             }));
 
           const cleanExercises = (Array.isArray(parsed.exercises) ? parsed.exercises : [])
@@ -552,10 +821,10 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
             markers: (Array.isArray(parsed.markers) ? parsed.markers : [])
               .map(x => String(x || '').trim()).filter(Boolean),
             commonMistakes: (Array.isArray(parsed.commonMistakes) ? parsed.commonMistakes : [])
-              .filter(m => m && m.wrongTarget && m.rightTarget)
+              .filter(m => m && (m.wrongTarget || m.wrongEn) && (m.rightTarget || m.rightEn))
               .map(m => ({
-                wrongTarget: String(m.wrongTarget).trim(),
-                rightTarget: String(m.rightTarget).trim(),
+                wrongTarget: String(m.wrongTarget || m.wrongEn).trim(),
+                rightTarget: String(m.rightTarget || m.rightEn).trim(),
                 explanationRu: String(m.explanationRu || '').trim()
               })),
             exercises: cleanExercises
@@ -588,15 +857,26 @@ Current grammar topic: "${targetTopic || 'Общая грамматика'}"
 Student question: "${cleanQ}"
 ${lang.extraNote}
 
-Answer clearly and thoroughly in Russian (2-5 sentences, easy to understand, no markdown).
-Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and its Russian translation ("exampleRu").
+Answer clearly and thoroughly in Russian (2-5 sentences, no markdown). Also give one helpful example in ${lang.enName} with Russian translation.
+
+Return ONLY a valid JSON object with no extra text:
+{
+  "answerRu": "string",
+  "exampleTarget": "string in ${lang.enName}",
+  "exampleRu": "Russian translation"
+}
 `.trim();
 
-      const task = await runGeminiTask({
-        apiKey,
-        models: MODELS_FAST,
+      const task = await runTextTask({
+        geminiKey,
+        githubToken,
+        openRouterKey,
+        groqKey,
+        temperature: 0.5,
+        maxTokens: 600,
         totalBudgetMs: 18000,
-        buildPayload: (thinkingConfig) => ({
+        chatMessages: [{ role: 'user', content: askPrompt }],
+        buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
           generationConfig: {
             temperature: 0.5,
@@ -616,7 +896,7 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
         }),
         parseResult: (parsed) => ({
           answerRu: String(parsed.answerRu || '').trim(),
-          exampleTarget: String(parsed.exampleTarget || '').trim(),
+          exampleTarget: String(parsed.exampleTarget || parsed.exampleEn || '').trim(),
           exampleRu: String(parsed.exampleRu || '').trim()
         })
       });
@@ -649,8 +929,19 @@ ${lang.extraNote}
 Requirements:
 - Write 2 or 3 short paragraphs (total 6 to 9 natural sentences) strictly in ${lang.enName}.
 - Use vocabulary and grammar appropriate for ${level}, including useful everyday words worth learning.
-- For each sentence, include its paragraph number in "p" (1, 2, or 3), the sentence in ${lang.enName} in "target", and an accurate, natural Russian translation in "ru".
+- For each sentence, include its paragraph number "p" (1, 2, or 3), the sentence in ${lang.enName} in "target", and an accurate natural Russian translation in "ru".
 - No markdown, no emojis.
+
+Return ONLY a valid JSON object with no extra text before or after it:
+{
+  "titleTarget": "Short catchy title in ${lang.enName}",
+  "titleRu": "Russian translation of the title",
+  "sentences": [
+    { "p": 1, "target": "First sentence in ${lang.enName}.", "ru": "Первое предложение на русском." },
+    { "p": 1, "target": "Second sentence.", "ru": "Второе предложение." },
+    { "p": 2, "target": "First sentence of second paragraph.", "ru": "Первое предложение второго абзаца." }
+  ]
+}
 `.trim();
 
       const readingSchema = {
@@ -674,11 +965,16 @@ Requirements:
         required: ['titleTarget', 'titleRu', 'sentences']
       };
 
-      const task = await runGeminiTask({
-        apiKey,
-        models: MODELS_HEAVY,
+      const task = await runTextTask({
+        geminiKey,
+        githubToken,
+        openRouterKey,
+        groqKey,
+        temperature: 0.75,
+        maxTokens: 2400,
         totalBudgetMs: 25000,
-        buildPayload: (thinkingConfig) => ({
+        chatMessages: [{ role: 'user', content: readingPrompt }],
+        buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
           generationConfig: {
             temperature: 0.75,
@@ -693,11 +989,12 @@ Requirements:
           const groupedMap = new Map();
 
           for (const s of rawSentences) {
-            if (!s || typeof s.target !== 'string' || !s.target.trim()) continue;
+            const txt = s && (s.target || s.en);
+            if (!txt || typeof txt !== 'string' || !txt.trim()) continue;
             const pNum = Number.isFinite(Number(s.p)) ? Number(s.p) : 1;
             if (!groupedMap.has(pNum)) groupedMap.set(pNum, []);
             groupedMap.get(pNum).push({
-              target: s.target.trim(),
+              target: txt.trim(),
               ru: String(s.ru || '').trim()
             });
           }
@@ -710,7 +1007,7 @@ Requirements:
           if (cleanParagraphs.length === 0) return null;
 
           return {
-            titleTarget: String(parsed.titleTarget || finalTopic).trim(),
+            titleTarget: String(parsed.titleTarget || parsed.titleEn || finalTopic).trim(),
             titleRu: String(parsed.titleRu || '').trim(),
             paragraphs: cleanParagraphs
           };
@@ -739,16 +1036,26 @@ Topic: "${topic}"
 Opening scenario: ${chosenSeed}
 ${lang.extraNote}
 
-Write a fresh, natural opening message STRICTLY in ${lang.enName} ("replyTarget", 1-2 short sentences ending with an engaging question) and its natural Russian translation ("replyRu").
-Avoid cliché textbook openings — jump right into the vibe of the scenario!
-No markdown or emojis.
+Write a fresh, natural opening message STRICTLY in ${lang.enName} (1-2 short sentences ending with an engaging question) and its natural Russian translation.
+Avoid cliché textbook openings — jump right into the vibe of the scenario! No markdown or emojis.
+
+Return ONLY a valid JSON object with no extra text:
+{
+  "replyTarget": "opening line in ${lang.enName}",
+  "replyRu": "natural Russian translation"
+}
 `.trim();
 
-      const task = await runGeminiTask({
-        apiKey,
-        models: MODELS_FAST,
-        totalBudgetMs: 11000,
-        buildPayload: (thinkingConfig) => ({
+      const task = await runTextTask({
+        geminiKey,
+        githubToken,
+        openRouterKey,
+        groqKey,
+        temperature: 0.95,
+        maxTokens: 320,
+        totalBudgetMs: 12000,
+        chatMessages: [{ role: 'user', content: startPrompt }],
+        buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
           generationConfig: {
             temperature: 1.0,
@@ -766,13 +1073,14 @@ No markdown or emojis.
           }
         }),
         parseResult: (parsed) => {
-          if (!parsed.replyTarget) return null;
+          const reply = parsed.replyTarget || parsed.replyEn;
+          if (!reply) return null;
           return {
             userTranscript: '',
             hasErrors: false,
             correction: '',
             explanationRu: '',
-            replyTarget: String(parsed.replyTarget).trim(),
+            replyTarget: String(reply).trim(),
             replyRu: String(parsed.replyRu || '').trim()
           };
         }
@@ -811,75 +1119,179 @@ Topic: "${topic}".
 ${lang.extraNote}
 
 On every message:
-1. Transcribe accurately what the student said in ${lang.enName} in "userTranscript".
+1. Put exact transcription of what the student said in ${lang.enName} in "userTranscript".
 2. If there are grammar, word choice, or phrasing mistakes, set "hasErrors": true, give a natural corrected version in ${lang.enName} in "correction", and explain briefly in Russian (1-2 sentences) in "explanationRu". Otherwise set "hasErrors": false, "correction": "", and write short praise in Russian in "explanationRu".
 3. Reply naturally STRICTLY in ${lang.enName} in "replyTarget" (1-2 short sentences + a light follow-up question, no markdown or emojis) and translate it into Russian in "replyRu".
+
+Return ONLY a valid JSON object with no extra text:
+{
+  "userTranscript": "string",
+  "hasErrors": true,
+  "correction": "string",
+  "explanationRu": "string",
+  "replyTarget": "string",
+  "replyRu": "string"
+}
 `.trim();
 
-    const contents = [];
     const safeHistory = Array.isArray(history) ? history.slice(-10) : [];
 
-    if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
-      contents.push({
-        role: 'user',
-        parts: [{ text: `Let's practice ${lang.enName} on the topic "${topic}".` }]
-      });
-    }
-
-    for (const item of safeHistory) {
-      if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
+    const buildGeminiContents = (userParts) => {
+      const contents = [];
+      if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
         contents.push({
-          role: item.role,
-          parts: [{ text: item.text.slice(0, 800) }]
+          role: 'user',
+          parts: [{ text: `Let's practice ${lang.enName} on the topic "${topic}".` }]
         });
       }
-    }
+      for (const item of safeHistory) {
+        if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
+          contents.push({ role: item.role, parts: [{ text: item.text.slice(0, 800) }] });
+        }
+      }
+      contents.push({ role: 'user', parts: userParts });
+      return contents;
+    };
 
-    const userParts = [];
+    const buildChatMessages = (userText) => {
+      const msgs = [{ role: 'system', content: systemInstruction }];
+      for (const item of safeHistory) {
+        if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
+          msgs.push({
+            role: item.role === 'model' ? 'assistant' : 'user',
+            content: item.text.slice(0, 800)
+          });
+        }
+      }
+      msgs.push({
+        role: 'user',
+        content: `Student message in ${lang.enName}: "${String(userText).trim().slice(0, 800)}". Check for mistakes and respond strictly in JSON.`
+      });
+      return msgs;
+    };
+
+    const chatSchema = {
+      type: 'OBJECT',
+      properties: {
+        userTranscript: { type: 'STRING' },
+        hasErrors: { type: 'BOOLEAN' },
+        correction: { type: 'STRING' },
+        explanationRu: { type: 'STRING' },
+        replyTarget: { type: 'STRING' },
+        replyRu: { type: 'STRING' }
+      },
+      required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
+    };
+
+    const parseChat = (fallbackUserText) => (parsed) => ({
+      userTranscript: String(parsed.userTranscript || fallbackUserText || '').trim(),
+      hasErrors: Boolean(parsed.hasErrors),
+      correction: String(parsed.correction || '').trim(),
+      explanationRu: String(parsed.explanationRu || '').trim(),
+      replyTarget: String(parsed.replyTarget || parsed.replyEn || '...').trim(),
+      replyRu: String(parsed.replyRu || '').trim()
+    });
+
+    // Ветка с аудио: перебор моделей Gemini → если подключён Groq, Whisper + текстовый ИИ
     if (audioBase64) {
+      const errors = [];
       const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
-      userParts.push({ text: `Listen to the student audio in ${lang.enName}, transcribe it, check for mistakes, and respond.` });
-      userParts.push({ inline_data: { mime_type: cleanMime, data: audioBase64 } });
-    } else {
-      userParts.push({ text: `Student message in ${lang.enName}: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond.` });
-    }
+      const audioParts = [
+        { text: `Listen to the student audio in ${lang.enName}, transcribe it, check for mistakes, and respond in JSON.` },
+        { inline_data: { mime_type: cleanMime, data: audioBase64 } }
+      ];
 
-    contents.push({ role: 'user', parts: userParts });
-
-    const task = await runGeminiTask({
-      apiKey,
-      models: MODELS_HEAVY,
-      totalBudgetMs: 25000,
-      buildPayload: (thinkingConfig) => ({
+      const buildAudioGeminiPayload = (thinkingConfig) => ({
         system_instruction: { parts: [{ text: systemInstruction }] },
-        contents,
+        contents: buildGeminiContents(audioParts),
         generationConfig: {
           temperature: 0.8,
           maxOutputTokens: 750,
           responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              userTranscript: { type: 'STRING' },
-              hasErrors: { type: 'BOOLEAN' },
-              correction: { type: 'STRING' },
-              explanationRu: { type: 'STRING' },
-              replyTarget: { type: 'STRING' },
-              replyRu: { type: 'STRING' }
-            },
-            required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
-          },
+          responseSchema: chatSchema,
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      });
+
+      if (geminiKey) {
+        const audioModels = [
+          { model: 'gemini-3.5-flash-lite', timeout: 7500 },
+          { model: 'gemini-flash-latest', timeout: 7500 },
+          { model: 'gemini-3.5-flash', timeout: 8000 }
+        ];
+        for (const am of audioModels) {
+          const gRes = await callGemini(geminiKey, am.model, buildAudioGeminiPayload({ thinkingBudget: 0 }), am.timeout);
+          if (gRes.ok) {
+            try {
+              const parts = gRes.data?.candidates?.[0]?.content?.parts || [];
+              const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+              const parsed = extractJson(textPart?.text || '');
+              return res.status(200).json(parseChat('')(parsed));
+            } catch (_) {
+              errors.push(`${am.model}: ошибка формата`);
+            }
+          } else {
+            errors.push(`${am.model}: ${shortErrorText(gRes.data?.error?.message, gRes.status)}`);
+          }
+        }
+      }
+
+      if (groqKey) {
+        const stt = await transcribeWithGroq(groqKey, audioBase64, cleanMime, langCode, 8000);
+        if (stt.ok && stt.text) {
+          const fallbackTask = await runTextTask({
+            geminiKey: '',
+            githubToken,
+            openRouterKey,
+            groqKey,
+            temperature: 0.8,
+            maxTokens: 750,
+            totalBudgetMs: 14000,
+            chatMessages: buildChatMessages(stt.text),
+            buildGeminiPayload: () => ({}),
+            parseResult: parseChat(stt.text)
+          });
+          if (fallbackTask.ok) {
+            return res.status(200).json(fallbackTask.value);
+          }
+          errors.push(...fallbackTask.errors);
+        } else if (stt.ok && !stt.text) {
+          return res.status(400).json({ error: 'Не удалось расслышать голос. Попробуйте сказать фразу чуть громче.' });
+        } else {
+          errors.push(`groq/whisper: ${stt.error}`);
+        }
+      }
+
+      return res.status(502).json({
+        error: formatOverloadError('Не удалось разобрать голосовое сообщение.', errors)
+      });
+    }
+
+    // Ветка с текстом
+    const cleanText = String(text).trim().slice(0, 800);
+    const textParts = [{ text: `Student message in ${lang.enName}: "${cleanText}". Check for mistakes and respond in JSON.` }];
+
+    const task = await runTextTask({
+      geminiKey,
+      githubToken,
+      openRouterKey,
+      groqKey,
+      temperature: 0.8,
+      maxTokens: 750,
+      totalBudgetMs: 25000,
+      chatMessages: buildChatMessages(cleanText),
+      buildGeminiPayload: (thinkingConfig) => ({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents: buildGeminiContents(textParts),
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 750,
+          responseMimeType: 'application/json',
+          responseSchema: chatSchema,
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
       }),
-      parseResult: (parsed) => ({
-        userTranscript: parsed.userTranscript || text || '',
-        hasErrors: Boolean(parsed.hasErrors),
-        correction: parsed.correction || '',
-        explanationRu: parsed.explanationRu || '',
-        replyTarget: parsed.replyTarget || '...',
-        replyRu: parsed.replyRu || ''
-      })
+      parseResult: parseChat(cleanText)
     });
 
     if (!task.ok) {
