@@ -199,7 +199,11 @@ async function callGemini(apiKey, model, payload, timeoutMs) {
     try {
       data = JSON.parse(text);
     } catch (_) {
-      data = { error: { message: text.slice(0, 200) || `HTTP ${res.status}` } };
+      return {
+        ok: false,
+        status: res.status,
+        data: { error: { message: `не JSON (${res.status}): ${text.replace(/\s+/g, ' ').slice(0, 80)}` } }
+      };
     }
     return { ok: res.ok, status: res.status, data };
   } catch (err) {
@@ -233,12 +237,32 @@ function mergeSystemIntoUser(messages) {
   return rest;
 }
 
+function extractOpenAiText(data) {
+  const msg = data?.choices?.[0]?.message;
+  if (typeof msg?.content === 'string' && msg.content.trim()) return msg.content;
+  if (Array.isArray(msg?.content)) {
+    const joined = msg.content
+      .map(part => (typeof part === 'string' ? part : (part?.text || '')))
+      .join('')
+      .trim();
+    if (joined) return joined;
+  }
+  if (typeof data?.choices?.[0]?.text === 'string' && data.choices[0].text.trim()) {
+    return data.choices[0].text;
+  }
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text;
+  }
+  return '';
+}
+
 async function callOpenAiCompatible({ url, apiKey, model, messages, temperature = 0.7, maxTokens = 2000, jsonMode = false, extraHeaders = {} }, timeoutMs) {
   const body = {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
+    stream: false,
     ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
   };
 
@@ -262,7 +286,11 @@ async function callOpenAiCompatible({ url, apiKey, model, messages, temperature 
     try {
       data = JSON.parse(text);
     } catch (_) {
-      data = { error: { message: text.slice(0, 200) || `HTTP ${res.status}` } };
+      return {
+        ok: false,
+        status: res.status,
+        data: { error: { message: `не JSON (${res.status}): ${text.replace(/\s+/g, ' ').slice(0, 80)}` } }
+      };
     }
     return { ok: res.ok, status: res.status, data };
   } catch (err) {
@@ -353,10 +381,10 @@ function shortErrorText(msg, status) {
   if (/quota|rate limit|resource exhausted|limit/i.test(clean) || status === 429) return '429 лимит';
   if (/invalid api key|unauthorized|bad credentials|user not found/i.test(clean) || status === 401) return '401 неверный ключ';
   if (status === 403 || /permission|forbidden/i.test(clean)) return '403 нет прав Models';
-  return clean.length > 55 ? clean.slice(0, 55) + '…' : clean;
+  return clean.length > 95 ? clean.slice(0, 95) + '…' : clean;
 }
 
-// Цепочка: Gemini → GitHub Models (GPT-4.1-mini / GPT-4o-mini) → OpenRouter / Groq → Gemini fallback
+// Цепочка: Gemini Lite → GitHub Models (GPT-4.1-mini / GPT-4o-mini) → OpenRouter/Groq → Gemini Flash (16с)
 async function runTextTask({
   geminiKey,
   githubToken,
@@ -366,7 +394,7 @@ async function runTextTask({
   chatMessages,
   temperature = 0.7,
   maxTokens = 2000,
-  totalBudgetMs = 25000,
+  totalBudgetMs = 26000,
   parseResult
 }) {
   const deadline = Date.now() + totalBudgetMs;
@@ -374,7 +402,7 @@ async function runTextTask({
 
   const steps = [];
   if (geminiKey) {
-    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 5500 });
+    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 6500 });
   }
   if (githubToken) {
     steps.push({
@@ -389,25 +417,18 @@ async function runTextTask({
       url: 'https://models.github.ai/inference/chat/completions',
       model: 'openai/gpt-4o-mini',
       jsonMode: true,
-      timeout: 10000
-    });
-    steps.push({
-      provider: 'github',
-      url: 'https://models.inference.ai.azure.com/chat/completions',
-      model: 'gpt-4o-mini',
-      jsonMode: true,
       timeout: 9000
     });
   }
   if (openRouterKey) {
-    steps.push({ provider: 'openrouter', model: 'openrouter/free', timeout: 10000 });
-    steps.push({ provider: 'openrouter', model: 'google/gemma-3-27b-it:free', mergeSystem: true, timeout: 9000 });
+    steps.push({ provider: 'openrouter', model: 'openrouter/free', timeout: 9000 });
+    steps.push({ provider: 'openrouter', model: 'google/gemma-3-27b-it:free', mergeSystem: true, timeout: 8000 });
   }
   if (groqKey) {
-    steps.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', timeout: 10000 });
+    steps.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', timeout: 9000 });
   }
   if (geminiKey) {
-    steps.push({ provider: 'gemini', model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 6500 });
+    steps.push({ provider: 'gemini', model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 16000 });
   }
 
   for (const step of steps) {
@@ -416,6 +437,7 @@ async function runTextTask({
     const timeout = Math.min(step.timeout, remaining);
 
     let rawText = '';
+    let lastData = null;
 
     if (step.provider === 'gemini') {
       let result = await callGemini(geminiKey, step.model, buildGeminiPayload(step.thinking), timeout);
@@ -429,13 +451,15 @@ async function runTextTask({
         errors.push(`${step.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
         continue;
       }
+      lastData = result.data;
       const parts = result.data?.candidates?.[0]?.content?.parts || [];
       const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
       rawText = textPart?.text || '';
     } else if (step.provider === 'github') {
-      const ghHeaders = step.url.includes('models.github.ai')
-        ? { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
-        : {};
+      const ghHeaders = {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      };
       let result = await callOpenAiCompatible(
         {
           url: step.url,
@@ -472,7 +496,8 @@ async function runTextTask({
         errors.push(`gh/${shortName}: ${shortErrorText(result.data?.error?.message, result.status)}`);
         continue;
       }
-      rawText = result.data?.choices?.[0]?.message?.content || '';
+      lastData = result.data;
+      rawText = extractOpenAiText(result.data);
     } else if (step.provider === 'openrouter') {
       const msgs = step.mergeSystem ? mergeSystemIntoUser(chatMessages) : chatMessages;
       const result = await callOpenAiCompatible(
@@ -496,7 +521,8 @@ async function runTextTask({
         errors.push(`or/${shortName}: ${shortErrorText(result.data?.error?.message, result.status)}`);
         continue;
       }
-      rawText = result.data?.choices?.[0]?.message?.content || '';
+      lastData = result.data;
+      rawText = extractOpenAiText(result.data);
     } else if (step.provider === 'groq') {
       const result = await callOpenAiCompatible(
         {
@@ -514,11 +540,13 @@ async function runTextTask({
         errors.push(`groq/${step.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
         continue;
       }
-      rawText = result.data?.choices?.[0]?.message?.content || '';
+      lastData = result.data;
+      rawText = extractOpenAiText(result.data);
     }
 
     if (!rawText) {
-      errors.push(`${step.model}: пустой ответ`);
+      const preview = JSON.stringify(lastData || {}).replace(/\s+/g, ' ').slice(0, 90);
+      errors.push(`${step.model}: пустой ответ (${preview})`);
       continue;
     }
 
@@ -550,10 +578,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Метод не поддерживается.' });
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY || '';
-  const githubToken = process.env.GITHUB_TOKEN || '';
-  const openRouterKey = process.env.OPENROUTER_API_KEY || '';
-  const groqKey = process.env.GROQ_API_KEY || '';
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const githubToken = (process.env.GITHUB_TOKEN || '').trim();
+  const openRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  const groqKey = (process.env.GROQ_API_KEY || '').trim();
 
   if (!geminiKey && !githubToken && !openRouterKey && !groqKey) {
     return res.status(500).json({ error: 'На сервере не настроены ключи ИИ (GEMINI_API_KEY или GITHUB_TOKEN).' });
@@ -615,7 +643,7 @@ Return ONLY a valid JSON object with no extra text:
         groqKey,
         temperature: 0.3,
         maxTokens: 250,
-        totalBudgetMs: 16000,
+        totalBudgetMs: 18000,
         chatMessages: [{ role: 'user', content: trPrompt }],
         buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
@@ -770,7 +798,7 @@ Return ONLY a valid JSON object with no extra text before or after it:
         groqKey,
         temperature: 0.7,
         maxTokens: 4000,
-        totalBudgetMs: 25000,
+        totalBudgetMs: 26000,
         chatMessages: [{ role: 'user', content: grammarPrompt }],
         buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
@@ -874,7 +902,7 @@ Return ONLY a valid JSON object with no extra text:
         groqKey,
         temperature: 0.5,
         maxTokens: 600,
-        totalBudgetMs: 18000,
+        totalBudgetMs: 20000,
         chatMessages: [{ role: 'user', content: askPrompt }],
         buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
@@ -972,7 +1000,7 @@ Return ONLY a valid JSON object with no extra text before or after it:
         groqKey,
         temperature: 0.75,
         maxTokens: 2400,
-        totalBudgetMs: 25000,
+        totalBudgetMs: 26000,
         chatMessages: [{ role: 'user', content: readingPrompt }],
         buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
@@ -1053,7 +1081,7 @@ Return ONLY a valid JSON object with no extra text:
         groqKey,
         temperature: 0.95,
         maxTokens: 320,
-        totalBudgetMs: 12000,
+        totalBudgetMs: 14000,
         chatMessages: [{ role: 'user', content: startPrompt }],
         buildGeminiPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
@@ -1215,9 +1243,9 @@ Return ONLY a valid JSON object with no extra text:
 
       if (geminiKey) {
         const audioModels = [
-          { model: 'gemini-3.5-flash-lite', timeout: 7500 },
-          { model: 'gemini-flash-latest', timeout: 7500 },
-          { model: 'gemini-3.5-flash', timeout: 8000 }
+          { model: 'gemini-3.5-flash-lite', timeout: 7000 },
+          { model: 'gemini-flash-latest', timeout: 14000 },
+          { model: 'gemini-3.5-flash', timeout: 12000 }
         ];
         for (const am of audioModels) {
           const gRes = await callGemini(geminiKey, am.model, buildAudioGeminiPayload({ thinkingBudget: 0 }), am.timeout);
@@ -1278,7 +1306,7 @@ Return ONLY a valid JSON object with no extra text:
       groqKey,
       temperature: 0.8,
       maxTokens: 750,
-      totalBudgetMs: 25000,
+      totalBudgetMs: 26000,
       chatMessages: buildChatMessages(cleanText),
       buildGeminiPayload: (thinkingConfig) => ({
         system_instruction: { parts: [{ text: systemInstruction }] },
