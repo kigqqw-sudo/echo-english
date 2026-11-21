@@ -368,14 +368,18 @@ function extractJson(rawText) {
 function shortErrorText(msg, status) {
   const clean = String(msg || status || '').replace(/\s+/g, ' ').trim();
   if (/high demand|overloaded|unavailable/i.test(clean) || status === 503) return '503 перегрузка';
-  if (/not found|no longer available|no endpoints/i.test(clean) || status === 404) return '404 недоступна';
-  if (/quota|rate limit|resource exhausted|limit/i.test(clean) || status === 429) return '429 лимит';
-  if (/invalid api key|unauthorized|invalid token/i.test(clean) || status === 401) return '401 неверный ключ';
-  if (status === 403 || /permission|forbidden|inference/i.test(clean)) return '403 нет прав Inference Providers';
-  return clean.length > 75 ? clean.slice(0, 75) + '…' : clean;
+  if (status === 404 || /not found|no longer available|no endpoints/i.test(clean)) return '404 недоступна';
+  if (status === 402 || /exceeded.*credit|payment required|depleted/i.test(clean)) {
+    return `402 лимит кредитов: ${clean.slice(0, 75)}`;
+  }
+  if (status === 429 || /quota|rate limit|resource exhausted/i.test(clean)) return '429 лимит';
+  if (status === 401 || /invalid api key|unauthorized|invalid token/i.test(clean)) return '401 неверный ключ';
+  if (status === 403) return `403: ${clean.slice(0, 90)}`;
+  const prefix = status ? `${status}: ` : '';
+  return prefix + (clean.length > 85 ? clean.slice(0, 85) + '…' : clean);
 }
 
-// Цепочка: Gemini Lite → Hugging Face (Qwen 2.5 72B / Llama 3.3 70B / Qwen 2.5 7B) → Mistral / OpenRouter / Groq → запасные Gemini
+// Цепочка: Gemini Lite → Hugging Face (Qwen 2.5 72B / Llama 3.3 70B / Llama 3.1 8B) → Mistral / OpenRouter / Groq → запасные Gemini
 async function runTextTask({
   geminiKey,
   hfToken,
@@ -399,7 +403,7 @@ async function runTextTask({
   if (hfToken) {
     steps.push({ provider: 'hf', model: 'Qwen/Qwen2.5-72B-Instruct', timeout: 12000 });
     steps.push({ provider: 'hf', model: 'meta-llama/Llama-3.3-70B-Instruct', timeout: 10000 });
-    steps.push({ provider: 'hf', model: 'Qwen/Qwen2.5-7B-Instruct', timeout: 8000 });
+    steps.push({ provider: 'hf', model: 'meta-llama/Llama-3.1-8B-Instruct', timeout: 8000 });
   }
   if (mistralKey) {
     steps.push({ provider: 'mistral', model: 'mistral-small-latest', timeout: 10000 });
@@ -452,7 +456,10 @@ async function runTextTask({
       );
       if (!result.ok) {
         const shortName = step.model.split('/').pop();
-        errors.push(`hf/${shortName}: ${shortErrorText(result.data?.error?.message || result.data?.error, result.status)}`);
+        const errMsg = typeof result.data?.error === 'string'
+          ? result.data.error
+          : (result.data?.error?.message || result.data?.message || JSON.stringify(result.data || ''));
+        errors.push(`hf/${shortName}: ${shortErrorText(errMsg, result.status)}`);
         continue;
       }
       rawText = extractOpenAiText(result.data);
