@@ -167,6 +167,19 @@ const FALLBACK_STARTERS_BY_LANG = {
   ]
 };
 
+// Цепочки моделей: если основная перегружена (503 / high demand), сервер сразу переключается на запасную
+const MODELS_HEAVY = [
+  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 14000 },
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 13000 },
+  { model: 'gemini-3.8-flash', thinking: { thinkingLevel: 'minimal' }, timeout: 11000 }
+];
+
+const MODELS_FAST = [
+  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 6500 },
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 6500 },
+  { model: 'gemini-3.8-flash', thinking: { thinkingLevel: 'minimal' }, timeout: 6000 }
+];
+
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -232,6 +245,60 @@ function extractJson(rawText) {
   }
 }
 
+async function runGeminiTask({ apiKey, buildPayload, models, totalBudgetMs = 26000, parseResult }) {
+  const deadline = Date.now() + totalBudgetMs;
+  const errors = [];
+
+  for (const attempt of models) {
+    const remaining = deadline - Date.now();
+    if (remaining < 2200) break;
+
+    const timeout = Math.min(attempt.timeout, remaining);
+    let result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), timeout);
+
+    if (!result.ok && result.status === 400 && attempt.thinking) {
+      const rem2 = deadline - Date.now();
+      if (rem2 >= 2200) {
+        result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(attempt.timeout, rem2));
+      }
+    }
+
+    if (!result.ok) {
+      errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
+      continue;
+    }
+
+    try {
+      const parts = result.data?.candidates?.[0]?.content?.parts || [];
+      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
+      const rawText = textPart?.text || '';
+      if (!rawText) {
+        errors.push(`${attempt.model}: пустой ответ`);
+        continue;
+      }
+
+      const parsed = extractJson(rawText);
+      const value = parseResult ? parseResult(parsed) : parsed;
+      if (value) {
+        return { ok: true, value, model: attempt.model };
+      }
+      errors.push(`${attempt.model}: неполный ответ`);
+    } catch (_) {
+      errors.push(`${attempt.model}: ошибка формата`);
+    }
+  }
+
+  return { ok: false, errors };
+}
+
+function formatOverloadError(prefix, errors) {
+  const joined = errors.join(' | ');
+  if (/high demand|overloaded|unavailable|503|429/i.test(joined)) {
+    return `${prefix} Серверы ИИ сейчас временно перегружены — попробуйте ещё раз через пару секунд.`;
+  }
+  return `${prefix} (${joined})`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Метод не поддерживается.' });
@@ -286,41 +353,38 @@ Give a concise Russian translation (1-3 words) in "translation", and a very shor
 ${lang.scriptHint || ''}
 `.trim();
 
-      const buildTrPayload = (thinkingConfig) => ({
-        contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 250,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              translation: { type: 'STRING' },
-              note: { type: 'STRING' }
+      const task = await runGeminiTask({
+        apiKey,
+        models: MODELS_FAST,
+        totalBudgetMs: 16000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 250,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                translation: { type: 'STRING' },
+                note: { type: 'STRING' }
+              },
+              required: ['translation', 'note']
             },
-            required: ['translation', 'note']
-          },
-          ...(thinkingConfig ? { thinkingConfig } : {})
-        }
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => ({
+          translation: String(parsed.translation || '').trim(),
+          note: String(parsed.note || '').trim()
+        })
       });
 
-      let trRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildTrPayload({ thinkingBudget: 0 }), 7000);
-      if (!trRes.ok && trRes.status === 400) {
-        trRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildTrPayload(null), 6000);
-      }
-
-      if (!trRes.ok) {
+      if (!task.ok) {
         return res.status(502).json({ error: 'Не удалось перевести слово. Введите перевод вручную.' });
       }
 
-      const parts = trRes.data?.candidates?.[0]?.content?.parts || [];
-      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-      const parsed = extractJson(textPart?.text || '{}');
-
-      return res.status(200).json({
-        translation: parsed.translation || '',
-        note: parsed.note || ''
-      });
+      return res.status(200).json(task.value);
     }
 
     // 2. Подробный урок и задания по грамматике
@@ -422,40 +486,21 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
         required: ['topicTitle', 'whenToUseRu', 'sections', 'markers', 'commonMistakes', 'exercises']
       };
 
-      const buildGrammarPayload = (thinkingConfig) => ({
-        contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4500,
-          responseMimeType: 'application/json',
-          responseSchema: grammarSchema,
-          ...(thinkingConfig ? { thinkingConfig } : {})
-        }
-      });
-
-      const attempts = [
-        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 19000 },
-        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 9000 }
-      ];
-
-      const errors = [];
-
-      for (const attempt of attempts) {
-        let result = await callGemini(apiKey, attempt.model, buildGrammarPayload(attempt.thinking), attempt.timeout);
-        if (!result.ok && result.status === 400 && attempt.thinking) {
-          result = await callGemini(apiKey, attempt.model, buildGrammarPayload(null), attempt.timeout);
-        }
-
-        if (!result.ok) {
-          errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
-          continue;
-        }
-
-        try {
-          const parts = result.data?.candidates?.[0]?.content?.parts || [];
-          const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-          const parsed = extractJson(textPart?.text || '');
-
+      const task = await runGeminiTask({
+        apiKey,
+        models: MODELS_HEAVY,
+        totalBudgetMs: 26000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 4500,
+            responseMimeType: 'application/json',
+            responseSchema: grammarSchema,
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => {
           const cleanSections = (Array.isArray(parsed.sections) ? parsed.sections : [])
             .filter(s => s && (s.headingRu || s.explanationRu))
             .map(s => ({
@@ -484,33 +529,34 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
               };
             });
 
-          if (cleanSections.length > 0 && cleanExercises.length > 0) {
-            return res.status(200).json({
-              topicTitle: String(parsed.topicTitle || targetTopic).trim(),
-              whenToUseRu: (Array.isArray(parsed.whenToUseRu) ? parsed.whenToUseRu : [])
-                .map(x => String(x || '').trim()).filter(Boolean),
-              sections: cleanSections,
-              markers: (Array.isArray(parsed.markers) ? parsed.markers : [])
-                .map(x => String(x || '').trim()).filter(Boolean),
-              commonMistakes: (Array.isArray(parsed.commonMistakes) ? parsed.commonMistakes : [])
-                .filter(m => m && m.wrongTarget && m.rightTarget)
-                .map(m => ({
-                  wrongTarget: String(m.wrongTarget).trim(),
-                  rightTarget: String(m.rightTarget).trim(),
-                  explanationRu: String(m.explanationRu || '').trim()
-                })),
-              exercises: cleanExercises
-            });
-          }
-          errors.push('неполный урок');
-        } catch (_) {
-          errors.push('ошибка разбора JSON');
+          if (cleanSections.length === 0 || cleanExercises.length === 0) return null;
+
+          return {
+            topicTitle: String(parsed.topicTitle || targetTopic).trim(),
+            whenToUseRu: (Array.isArray(parsed.whenToUseRu) ? parsed.whenToUseRu : [])
+              .map(x => String(x || '').trim()).filter(Boolean),
+            sections: cleanSections,
+            markers: (Array.isArray(parsed.markers) ? parsed.markers : [])
+              .map(x => String(x || '').trim()).filter(Boolean),
+            commonMistakes: (Array.isArray(parsed.commonMistakes) ? parsed.commonMistakes : [])
+              .filter(m => m && m.wrongTarget && m.rightTarget)
+              .map(m => ({
+                wrongTarget: String(m.wrongTarget).trim(),
+                rightTarget: String(m.rightTarget).trim(),
+                explanationRu: String(m.explanationRu || '').trim()
+              })),
+            exercises: cleanExercises
+          };
         }
+      });
+
+      if (!task.ok) {
+        return res.status(502).json({
+          error: formatOverloadError('Не удалось составить урок.', task.errors)
+        });
       }
 
-      return res.status(502).json({
-        error: 'Не удалось составить урок. Попробуйте нажать ещё раз. (' + errors.join(' | ') + ')'
-      });
+      return res.status(200).json(task.value);
     }
 
     // 3. Вопрос ИИ по текущей теме грамматики
@@ -533,43 +579,42 @@ Answer clearly and thoroughly in Russian (2-5 sentences, easy to understand, no 
 Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and its Russian translation ("exampleRu").
 `.trim();
 
-      const buildAskPayload = (thinkingConfig) => ({
-        contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: 550,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              answerRu: { type: 'STRING' },
-              exampleTarget: { type: 'STRING' },
-              exampleRu: { type: 'STRING' }
+      const task = await runGeminiTask({
+        apiKey,
+        models: MODELS_FAST,
+        totalBudgetMs: 18000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
+          generationConfig: {
+            temperature: 0.5,
+            maxOutputTokens: 550,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                answerRu: { type: 'STRING' },
+                exampleTarget: { type: 'STRING' },
+                exampleRu: { type: 'STRING' }
+              },
+              required: ['answerRu', 'exampleTarget', 'exampleRu']
             },
-            required: ['answerRu', 'exampleTarget', 'exampleRu']
-          },
-          ...(thinkingConfig ? { thinkingConfig } : {})
-        }
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => ({
+          answerRu: String(parsed.answerRu || '').trim(),
+          exampleTarget: String(parsed.exampleTarget || '').trim(),
+          exampleRu: String(parsed.exampleRu || '').trim()
+        })
       });
 
-      let askRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildAskPayload({ thinkingBudget: 0 }), 9000);
-      if (!askRes.ok && askRes.status === 400) {
-        askRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildAskPayload(null), 8000);
+      if (!task.ok) {
+        return res.status(502).json({
+          error: formatOverloadError('Не удалось получить ответ.', task.errors)
+        });
       }
 
-      if (!askRes.ok) {
-        return res.status(502).json({ error: 'Не удалось получить ответ. Попробуйте ещё раз.' });
-      }
-
-      const parts = askRes.data?.candidates?.[0]?.content?.parts || [];
-      const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-      const parsed = extractJson(textPart?.text || '{}');
-
-      return res.status(200).json({
-        answerRu: String(parsed.answerRu || '').trim(),
-        exampleTarget: String(parsed.exampleTarget || '').trim(),
-        exampleRu: String(parsed.exampleRu || '').trim()
-      });
+      return res.status(200).json(task.value);
     }
 
     // 4. Генерация адаптированного текста для вкладки «Чтение»
@@ -616,40 +661,21 @@ Requirements:
         required: ['titleTarget', 'titleRu', 'sentences']
       };
 
-      const buildReadPayload = (thinkingConfig) => ({
-        contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
-        generationConfig: {
-          temperature: 0.75,
-          maxOutputTokens: 2400,
-          responseMimeType: 'application/json',
-          responseSchema: readingSchema,
-          ...(thinkingConfig ? { thinkingConfig } : {})
-        }
-      });
-
-      const attempts = [
-        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 15000 },
-        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 11000 }
-      ];
-
-      const errors = [];
-
-      for (const attempt of attempts) {
-        let result = await callGemini(apiKey, attempt.model, buildReadPayload(attempt.thinking), attempt.timeout);
-        if (!result.ok && result.status === 400 && attempt.thinking) {
-          result = await callGemini(apiKey, attempt.model, buildReadPayload(null), attempt.timeout);
-        }
-
-        if (!result.ok) {
-          errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
-          continue;
-        }
-
-        try {
-          const parts = result.data?.candidates?.[0]?.content?.parts || [];
-          const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-          const parsed = extractJson(textPart?.text || '');
-
+      const task = await runGeminiTask({
+        apiKey,
+        models: MODELS_HEAVY,
+        totalBudgetMs: 26000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
+          generationConfig: {
+            temperature: 0.75,
+            maxOutputTokens: 2400,
+            responseMimeType: 'application/json',
+            responseSchema: readingSchema,
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => {
           const rawSentences = Array.isArray(parsed.sentences) ? parsed.sentences : [];
           const groupedMap = new Map();
 
@@ -668,22 +694,23 @@ Requirements:
             .map(([, list]) => list)
             .filter(list => list.length > 0);
 
-          if (cleanParagraphs.length > 0) {
-            return res.status(200).json({
-              titleTarget: String(parsed.titleTarget || finalTopic).trim(),
-              titleRu: String(parsed.titleRu || '').trim(),
-              paragraphs: cleanParagraphs
-            });
-          }
-          errors.push('пустой список предложений');
-        } catch (_) {
-          errors.push('ошибка разбора JSON');
+          if (cleanParagraphs.length === 0) return null;
+
+          return {
+            titleTarget: String(parsed.titleTarget || finalTopic).trim(),
+            titleRu: String(parsed.titleRu || '').trim(),
+            paragraphs: cleanParagraphs
+          };
         }
+      });
+
+      if (!task.ok) {
+        return res.status(502).json({
+          error: formatOverloadError('Не удалось создать текст.', task.errors)
+        });
       }
 
-      return res.status(502).json({
-        error: 'Не удалось создать текст, попробуйте нажать «Новый текст» ещё раз. (' + errors.join(' | ') + ')'
-      });
+      return res.status(200).json(task.value);
     }
 
     // 5. Разнообразный старт диалога
@@ -704,45 +731,42 @@ Avoid cliché textbook openings — jump right into the vibe of the scenario!
 No markdown or emojis.
 `.trim();
 
-      const buildStartPayload = (thinkingConfig) => ({
-        contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
-        generationConfig: {
-          temperature: 1.0,
-          maxOutputTokens: 320,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              replyTarget: { type: 'STRING' },
-              replyRu: { type: 'STRING' }
+      const task = await runGeminiTask({
+        apiKey,
+        models: MODELS_FAST,
+        totalBudgetMs: 11000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
+          generationConfig: {
+            temperature: 1.0,
+            maxOutputTokens: 320,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                replyTarget: { type: 'STRING' },
+                replyRu: { type: 'STRING' }
+              },
+              required: ['replyTarget', 'replyRu']
             },
-            required: ['replyTarget', 'replyRu']
-          },
-          ...(thinkingConfig ? { thinkingConfig } : {})
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => {
+          if (!parsed.replyTarget) return null;
+          return {
+            userTranscript: '',
+            hasErrors: false,
+            correction: '',
+            explanationRu: '',
+            replyTarget: String(parsed.replyTarget).trim(),
+            replyRu: String(parsed.replyRu || '').trim()
+          };
         }
       });
 
-      let startRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildStartPayload({ thinkingBudget: 0 }), 7000);
-      if (!startRes.ok && startRes.status === 400) {
-        startRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildStartPayload(null), 5000);
-      }
-
-      if (startRes.ok) {
-        try {
-          const parts = startRes.data?.candidates?.[0]?.content?.parts || [];
-          const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-          const parsed = extractJson(textPart?.text || '');
-          if (parsed.replyTarget) {
-            return res.status(200).json({
-              userTranscript: '',
-              hasErrors: false,
-              correction: '',
-              explanationRu: '',
-              replyTarget: parsed.replyTarget,
-              replyRu: parsed.replyRu || ''
-            });
-          }
-        } catch (_) {}
+      if (task.ok) {
+        return res.status(200).json(task.value);
       }
 
       const list = FALLBACK_STARTERS_BY_LANG[langCode] || FALLBACK_STARTERS_BY_LANG.en;
@@ -809,71 +833,49 @@ On every message:
 
     contents.push({ role: 'user', parts: userParts });
 
-    const buildPayload = (thinkingConfig) => ({
-      system_instruction: { parts: [{ text: systemInstruction }] },
-      contents,
-      generationConfig: {
-        temperature: 0.8,
-        maxOutputTokens: 750,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            userTranscript: { type: 'STRING' },
-            hasErrors: { type: 'BOOLEAN' },
-            correction: { type: 'STRING' },
-            explanationRu: { type: 'STRING' },
-            replyTarget: { type: 'STRING' },
-            replyRu: { type: 'STRING' }
+    const task = await runGeminiTask({
+      apiKey,
+      models: MODELS_HEAVY,
+      totalBudgetMs: 26000,
+      buildPayload: (thinkingConfig) => ({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 750,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              userTranscript: { type: 'STRING' },
+              hasErrors: { type: 'BOOLEAN' },
+              correction: { type: 'STRING' },
+              explanationRu: { type: 'STRING' },
+              replyTarget: { type: 'STRING' },
+              replyRu: { type: 'STRING' }
+            },
+            required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
           },
-          required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
-        },
-        ...(thinkingConfig ? { thinkingConfig } : {})
-      }
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      }),
+      parseResult: (parsed) => ({
+        userTranscript: parsed.userTranscript || text || '',
+        hasErrors: Boolean(parsed.hasErrors),
+        correction: parsed.correction || '',
+        explanationRu: parsed.explanationRu || '',
+        replyTarget: parsed.replyTarget || '...',
+        replyRu: parsed.replyRu || ''
+      })
     });
 
-    const attempts = [
-      { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 16000 },
-      { model: 'gemini-3.8-flash', thinking: null, timeout: 11000 }
-    ];
-
-    let result = null;
-    const errors = [];
-
-    for (const attempt of attempts) {
-      result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), attempt.timeout);
-
-      if (!result.ok && result.status === 400 && attempt.thinking) {
-        result = await callGemini(apiKey, attempt.model, buildPayload(null), attempt.timeout);
-      }
-
-      if (result.ok) break;
-      errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
-    }
-
-    if (!result || !result.ok) {
+    if (!task.ok) {
       return res.status(502).json({
-        error: 'Не удалось получить ответ от ИИ. Детали: ' + errors.join(' | ')
+        error: formatOverloadError('Не удалось получить ответ от ИИ.', task.errors)
       });
     }
 
-    const parts = result.data?.candidates?.[0]?.content?.parts || [];
-    const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
-    const rawText = textPart?.text || '';
-
-    if (!rawText) {
-      return res.status(502).json({ error: 'ИИ вернул пустой ответ. Попробуйте сказать фразу ещё раз.' });
-    }
-
-    const parsed = extractJson(rawText);
-    return res.status(200).json({
-      userTranscript: parsed.userTranscript || text || '',
-      hasErrors: Boolean(parsed.hasErrors),
-      correction: parsed.correction || '',
-      explanationRu: parsed.explanationRu || '',
-      replyTarget: parsed.replyTarget || '...',
-      replyRu: parsed.replyRu || ''
-    });
+    return res.status(200).json(task.value);
   } catch (err) {
     console.error('Chat API error:', err);
     return res.status(500).json({ error: 'Ошибка сервера: ' + (err?.message || 'попробуйте ещё раз.') });
