@@ -168,16 +168,16 @@ const FALLBACK_STARTERS_BY_LANG = {
 };
 
 const GEMINI_HEAVY_MODELS = [
-  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 8500 },
-  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 18000 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 15000 },
-  { model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 14000 }
+  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 8000 },
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 14000 },
+  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 14000 },
+  { model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 12000 }
 ];
 
 const GEMINI_FAST_MODELS = [
   { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 8000 },
-  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 11000 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 10000 }
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 10000 },
+  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 10000 }
 ];
 
 function pickRandom(arr) {
@@ -419,7 +419,7 @@ ${lang.scriptHint || ''}
       return res.status(200).json(task.value);
     }
 
-    // 2. Подробный урок и задания по грамматике
+    // 2. Компактный и понятный урок и задания по грамматике
     if (action === 'grammar_lesson') {
       const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Базовая грамматика';
 
@@ -430,18 +430,17 @@ Student level: ${levelDesc}
 Grammar topic: "${targetTopic}"
 ${lang.extraNote}
 
-Create a concise, complete grammar lesson in Russian covering the core rules of the topic in ${lang.enName}, plus 5 interactive exercises for level ${level}:
-
+Create a concise, clear grammar lesson in Russian for level ${level}:
 1. "topicTitle": clear title (${lang.enName} term + Russian explanation).
-2. "whenToUseRu": 3 concise points in Russian explaining main real-life situations when this grammar is used.
-3. "sections": 3 to 4 structured blocks covering key parts of the topic (affirmative, negative, questions/rules, or main cases). Each block has:
+2. "whenToUseRu": 3 short bullet points in Russian explaining main situations when this grammar is used.
+3. "sections": 3 structured blocks covering key parts of the topic (structure/affirmative, negative/questions/exceptions, key nuances). Each has:
    * "headingRu": short Russian heading
-   * "formula": short formula or pattern (or "")
+   * "formula": short pattern (or "")
    * "explanationRu": clear 1-2 sentence Russian explanation
-   * "examples": 2 natural examples in ${lang.enName} ("target") with Russian translation ("ru").
-4. "markers": 4 to 5 signal words or phrases in ${lang.enName} with short Russian translations.
-5. "commonMistakes": 2 typical mistakes Russian speakers make on this topic, each with "wrongTarget", "rightTarget", and a short "explanationRu".
-6. "exercises": 5 exercises in ${lang.enName} (first 3: "type": "choice" with 4 distinct "options"; last 2: "type": "input" with "options": [] and a short "hint"). Each has "promptRu", "sentence" with "___", exact "answer", "fullSentence", "translationRu", and brief "explanationRu".
+   * "examples": 1-2 short natural examples in ${lang.enName} ("target") with Russian translation ("ru").
+4. "markers": 3-4 signal words/phrases in ${lang.enName} with short Russian translations.
+5. "commonMistakes": 2 typical mistakes Russian speakers make, each with "wrongTarget", "rightTarget", and a short "explanationRu".
+6. "exercises": 4 exercises in ${lang.enName} (first 2: "type": "choice" with 4 distinct "options"; last 2: "type": "input" with "options": [] and a short "hint"). Each has "promptRu", "sentence" with "___", exact "answer", "fullSentence", "translationRu", and brief "explanationRu".
 - No markdown symbols (*, **, #) and no emojis.
 `.trim();
 
@@ -516,7 +515,7 @@ Create a concise, complete grammar lesson in Russian covering the core rules of 
           contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 3600,
+            maxOutputTokens: 2600,
             responseMimeType: 'application/json',
             responseSchema: grammarSchema,
             ...(thinkingConfig ? { thinkingConfig } : {})
