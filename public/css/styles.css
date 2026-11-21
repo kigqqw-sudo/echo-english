@@ -1507,3 +1507,10 @@ select:hover, .icon-btn:hover {
   .reading-paragraph { font-size: 15px; }
   .g-sentence { font-size: 16px; }
 }
+.header { flex-wrap: wrap; }
+.controls { flex-wrap: wrap; }
+
+@media (max-width: 520px) {
+  .controls { width: 100%; justify-content: flex-start; }
+  #langSelect { max-width: 118px; }
+}
