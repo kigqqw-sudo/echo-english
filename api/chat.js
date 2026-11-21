@@ -222,44 +222,6 @@ async function callGemini(apiKey, model, payload, timeoutMs) {
   }
 }
 
-function mergeSystemIntoUser(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return messages;
-  const sysParts = messages.filter(m => m.role === 'system').map(m => m.content);
-  if (sysParts.length === 0) return messages;
-
-  const rest = messages.filter(m => m.role !== 'system').map(m => ({ ...m }));
-  const sysText = sysParts.join('\n\n');
-  if (rest.length > 0 && rest[0].role === 'user') {
-    rest[0].content = `${sysText}\n\n${rest[0].content}`;
-  } else {
-    rest.unshift({ role: 'user', content: sysText });
-  }
-  return rest;
-}
-
-// Формат диалога специально для Gemma 3 (без system_instruction и без повторения одинаковых ролей подряд)
-function buildGemmaContents(chatMessages) {
-  const merged = mergeSystemIntoUser(chatMessages || []);
-  const contents = [];
-
-  for (const m of merged) {
-    const text = String(m?.content || '').trim();
-    if (!text) continue;
-    const role = m.role === 'assistant' ? 'model' : 'user';
-    if (contents.length === 0 && role === 'model') {
-      contents.push({ role: 'user', parts: [{ text: 'Start.' }] });
-    }
-    const prev = contents[contents.length - 1];
-    if (prev && prev.role === role) {
-      prev.parts[0].text += '\n\n' + text;
-    } else {
-      contents.push({ role, parts: [{ text }] });
-    }
-  }
-
-  return contents;
-}
-
 function extractOpenAiText(data) {
   const msg = data?.choices?.[0]?.message;
   if (typeof msg?.content === 'string' && msg.content.trim()) return msg.content;
@@ -408,13 +370,15 @@ function shortErrorText(msg, status) {
   if (/high demand|overloaded|unavailable/i.test(clean) || status === 503) return '503 перегрузка';
   if (/not found|no longer available|no endpoints/i.test(clean) || status === 404) return '404 недоступна';
   if (/quota|rate limit|resource exhausted|limit/i.test(clean) || status === 429) return '429 лимит';
-  if (/invalid api key|unauthorized|bad credentials|user not found/i.test(clean) || status === 401) return '401 неверный ключ';
+  if (/invalid api key|unauthorized|invalid token/i.test(clean) || status === 401) return '401 неверный ключ';
+  if (status === 403 || /permission|forbidden|inference/i.test(clean)) return '403 нет прав Inference Providers';
   return clean.length > 75 ? clean.slice(0, 75) + '…' : clean;
 }
 
-// Цепочка: Gemini Lite → Gemma 3 27B (отдельный большой лимит!) → Gemini 3.5 Flash → Gemma 3 12B → Gemini Flash / 3.8 Flash
+// Цепочка: Gemini Lite → Hugging Face (Qwen 2.5 72B / Llama 3.3 70B / Qwen 2.5 7B) → Mistral / OpenRouter / Groq → запасные Gemini
 async function runTextTask({
   geminiKey,
+  hfToken,
   mistralKey,
   openRouterKey,
   groqKey,
@@ -430,12 +394,12 @@ async function runTextTask({
 
   const steps = [];
   if (geminiKey) {
-    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 6000 });
-    steps.push({ provider: 'gemma', model: 'gemma-3-27b-it', timeout: 12000 });
-    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 12000 });
-    steps.push({ provider: 'gemma', model: 'gemma-3-12b-it', timeout: 9000 });
-    steps.push({ provider: 'gemini', model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 9000 });
-    steps.push({ provider: 'gemini', model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 9000 });
+    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 5500 });
+  }
+  if (hfToken) {
+    steps.push({ provider: 'hf', model: 'Qwen/Qwen2.5-72B-Instruct', timeout: 12000 });
+    steps.push({ provider: 'hf', model: 'meta-llama/Llama-3.3-70B-Instruct', timeout: 10000 });
+    steps.push({ provider: 'hf', model: 'Qwen/Qwen2.5-7B-Instruct', timeout: 8000 });
   }
   if (mistralKey) {
     steps.push({ provider: 'mistral', model: 'mistral-small-latest', timeout: 10000 });
@@ -445,6 +409,10 @@ async function runTextTask({
   }
   if (groqKey) {
     steps.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', timeout: 9000 });
+  }
+  if (geminiKey) {
+    steps.push({ provider: 'gemini', model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 10000 });
+    steps.push({ provider: 'gemini', model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 9000 });
   }
 
   for (const step of steps) {
@@ -469,22 +437,25 @@ async function runTextTask({
       const parts = result.data?.candidates?.[0]?.content?.parts || [];
       const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
       rawText = textPart?.text || '';
-    } else if (step.provider === 'gemma') {
-      const gemmaPayload = {
-        contents: buildGemmaContents(chatMessages),
-        generationConfig: {
+    } else if (step.provider === 'hf') {
+      const result = await callOpenAiCompatible(
+        {
+          url: 'https://router.huggingface.co/v1/chat/completions',
+          apiKey: hfToken,
+          model: step.model,
+          messages: chatMessages,
           temperature,
-          maxOutputTokens: Math.min(maxTokens, 4096)
-        }
-      };
-      const result = await callGemini(geminiKey, step.model, gemmaPayload, timeout);
+          maxTokens: Math.min(maxTokens, 4096),
+          jsonMode: false
+        },
+        timeout
+      );
       if (!result.ok) {
-        errors.push(`${step.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
+        const shortName = step.model.split('/').pop();
+        errors.push(`hf/${shortName}: ${shortErrorText(result.data?.error?.message || result.data?.error, result.status)}`);
         continue;
       }
-      const parts = result.data?.candidates?.[0]?.content?.parts || [];
-      const textPart = parts.find(p => typeof p.text === 'string') || parts[parts.length - 1];
-      rawText = textPart?.text || '';
+      rawText = extractOpenAiText(result.data);
     } else if (step.provider === 'mistral') {
       const result = await callOpenAiCompatible(
         {
@@ -579,12 +550,13 @@ export default async function handler(req, res) {
   }
 
   const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const hfToken = (process.env.HF_TOKEN || '').trim();
   const mistralKey = (process.env.MISTRAL_API_KEY || '').trim();
   const openRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
   const groqKey = (process.env.GROQ_API_KEY || '').trim();
 
-  if (!geminiKey && !mistralKey && !openRouterKey && !groqKey) {
-    return res.status(500).json({ error: 'На сервере не настроены ключи ИИ (GEMINI_API_KEY).' });
+  if (!geminiKey && !hfToken && !mistralKey && !openRouterKey && !groqKey) {
+    return res.status(500).json({ error: 'На сервере не настроены ключи ИИ (GEMINI_API_KEY или HF_TOKEN).' });
   }
 
   const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
@@ -638,6 +610,7 @@ Return ONLY a valid JSON object with no extra text:
 
       const task = await runTextTask({
         geminiKey,
+        hfToken,
         mistralKey,
         openRouterKey,
         groqKey,
@@ -793,6 +766,7 @@ Return ONLY a valid JSON object with no extra text before or after it:
 
       const task = await runTextTask({
         geminiKey,
+        hfToken,
         mistralKey,
         openRouterKey,
         groqKey,
@@ -897,6 +871,7 @@ Return ONLY a valid JSON object with no extra text:
 
       const task = await runTextTask({
         geminiKey,
+        hfToken,
         mistralKey,
         openRouterKey,
         groqKey,
@@ -995,6 +970,7 @@ Return ONLY a valid JSON object with no extra text before or after it:
 
       const task = await runTextTask({
         geminiKey,
+        hfToken,
         mistralKey,
         openRouterKey,
         groqKey,
@@ -1076,6 +1052,7 @@ Return ONLY a valid JSON object with no extra text:
 
       const task = await runTextTask({
         geminiKey,
+        hfToken,
         mistralKey,
         openRouterKey,
         groqKey,
@@ -1270,6 +1247,7 @@ Return ONLY a valid JSON object with no extra text:
         if (stt.ok && stt.text) {
           const fallbackTask = await runTextTask({
             geminiKey,
+            hfToken,
             mistralKey,
             openRouterKey,
             groqKey,
@@ -1302,6 +1280,7 @@ Return ONLY a valid JSON object with no extra text:
 
     const task = await runTextTask({
       geminiKey,
+      hfToken,
       mistralKey,
       openRouterKey,
       groqKey,
