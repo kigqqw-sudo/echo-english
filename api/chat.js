@@ -30,11 +30,57 @@ function checkRateLimit(ip) {
   return { allowed: true };
 }
 
+const LANGUAGE_META = {
+  en: {
+    enName: 'English',
+    ruName: 'английский',
+    extraNote: ''
+  },
+  fr: {
+    enName: 'French',
+    ruName: 'французский',
+    extraNote: 'Pay natural attention to gender (le/la), verb conjugations, accents, and polite tu/vous when relevant.'
+  },
+  es: {
+    enName: 'Spanish',
+    ruName: 'испанский',
+    extraNote: 'Use natural standard Spanish (neutral/Spain). Pay attention to ser/estar, gender, and conjugations.'
+  },
+  de: {
+    enName: 'German',
+    ruName: 'немецкий',
+    extraNote: 'Pay natural attention to der/die/das, cases, and verb position.'
+  },
+  it: {
+    enName: 'Italian',
+    ruName: 'итальянский',
+    extraNote: 'Pay natural attention to articles, gender, and verb conjugations.'
+  },
+  zh: {
+    enName: 'Mandarin Chinese (Simplified Chinese characters)',
+    ruName: 'китайский',
+    extraNote: 'Write target sentences in natural Simplified Chinese characters (汉字). In Russian notes/explanations, include pinyin in parentheses to help the learner read.',
+    scriptHint: 'Include pinyin reading in the note field.'
+  },
+  ja: {
+    enName: 'Japanese',
+    ruName: 'японский',
+    extraNote: 'Write target sentences in natural Japanese (for A1-A2 keep kanji simple or use hiragana). In Russian notes/explanations, include reading in hiragana/romaji when helpful.',
+    scriptHint: 'Include reading in hiragana and romaji in the note field.'
+  },
+  ko: {
+    enName: 'Korean',
+    ruName: 'корейский',
+    extraNote: 'Write target sentences in natural Korean Hangul (polite 해요체 style by default). In Russian notes/explanations, include simple reading hints when helpful.',
+    scriptHint: 'Include pronunciation/romanization hint in the note field.'
+  }
+};
+
 const LEVEL_GUIDANCE = {
-  A1: 'Beginner (A1). Use very simple words, short sentences (5-10 words), present/past simple tenses.',
+  A1: 'Beginner (A1). Use very simple words, short sentences (5-10 words), basic present/past tenses.',
   A2: 'Elementary (A2). Use everyday vocabulary and clear, short sentences.',
-  B1: 'Intermediate (B1). Use natural everyday English, phrasal verbs sparingly, clear conversational flow.',
-  B2: 'Upper-Intermediate (B2). Use natural idioms, varied grammar, and engaging conversational phrasing.',
+  B1: 'Intermediate (B1). Use natural everyday language and clear conversational flow.',
+  B2: 'Upper-Intermediate (B2). Use natural expressions, varied grammar, and engaging conversational phrasing.',
   C1: 'Advanced (C1). Speak like an educated native speaker with nuanced vocabulary and natural idioms.'
 };
 
@@ -86,69 +132,39 @@ const SCENARIO_SEEDS = {
   ]
 };
 
-const FALLBACK_STARTERS = {
-  'Свободная тема': {
-    easy: [
-      { en: 'Hi! Are you a morning person or a night person?', ru: 'Привет! Ты жаворонок или сова?' },
-      { en: 'Hey! What is the best food you ate this week?', ru: 'Привет! Какую самую вкусную еду ты ел на этой неделе?' },
-      { en: 'Hi! If you have free time today, what will you do?', ru: 'Привет! Если у тебя сегодня будет свободное время, чем займёшься?' }
-    ],
-    mid: [
-      { en: 'Hey! Quick question: would you rather live by the sea or in a big city?', ru: 'Привет! Быстрый вопрос: ты бы предпочёл жить у моря или в большом городе?' },
-      { en: 'Hi there! What is one small thing that made your week better so far?', ru: 'Привет! Какая мелочь сделала твою неделю лучше?' },
-      { en: 'Hey! If you could instantly learn any new skill today, what would you pick?', ru: 'Привет! Если бы ты мог мгновенно освоить любой навык сегодня, что бы ты выбрал?' }
-    ]
-  },
-  'Путешествия': {
-    easy: [
-      { en: 'Hi! Do you like traveling by train, car, or plane?', ru: 'Привет! Тебе нравится путешествовать на поезде, машине или самолёте?' },
-      { en: 'Hey! What country do you really want to visit one day?', ru: 'Привет! Какую страну ты очень хочешь посетить однажды?' }
-    ],
-    mid: [
-      { en: 'Imagine you got a free plane ticket for tomorrow. Where are you flying?', ru: 'Представь, что тебе подарили бесплатный билет на самолёт на завтра. Куда полетишь?' },
-      { en: 'Hey! Do you prefer planning every detail of a trip or just going with the flow?', ru: 'Привет! Ты предпочитаешь планировать каждую деталь поездки или действовать по ситуации?' }
-    ]
-  },
-  'В кафе и ресторане': {
-    easy: [
-      { en: 'Hello! Welcome in. Would you like coffee, tea, or something cold?', ru: 'Здравствуйте! Добро пожаловать. Хотите кофе, чай или что-нибудь холодное?' },
-      { en: 'Hi! We have fresh croissants today. What would you like to order?', ru: 'Привет! У нас сегодня свежие круассаны. Что будете заказывать?' }
-    ],
-    mid: [
-      { en: 'Welcome in! It is pretty chilly outside — can I get you a hot drink or a table by the window?', ru: 'Добро пожаловать! На улице довольно прохладно — принести горячий напиток или проводить за столик у окна?' },
-      { en: 'Hi there! Our chef made a special pasta today, or are you in the mood for something lighter?', ru: 'Привет! Наш шеф сегодня приготовил особую пасту, или вы настроены на что-то полегче?' }
-    ]
-  },
-  'Работа и карьера': {
-    easy: [
-      { en: 'Hi! Do you like working alone or with other people?', ru: 'Привет! Тебе нравится работать одному или с другими людьми?' },
-      { en: 'Hey! What is your dream job?', ru: 'Привет! Какая у тебя работа мечты?' }
-    ],
-    mid: [
-      { en: 'Hey! If money was not an issue at all, what kind of work would you still enjoy doing?', ru: 'Привет! Если бы деньги вообще не имели значения, чем бы тебе всё равно нравилось заниматься?' },
-      { en: 'Hi! Are you more productive working from home or in an office around other people?', ru: 'Привет! Ты продуктивнее работаешь из дома или в офисе среди людей?' }
-    ]
-  },
-  'Хобби и фильмы': {
-    easy: [
-      { en: 'Hi! What is your favorite movie or TV show?', ru: 'Привет! Какой твой любимый фильм или сериал?' },
-      { en: 'Hey! Do you play video games or sports in your free time?', ru: 'Привет! Ты играешь в видеоигры или занимаешься спортом в свободное время?' }
-    ],
-    mid: [
-      { en: 'Hey! I need a good movie for tonight — what is something you watched recently and loved?', ru: 'Привет! Мне нужен хороший фильм на вечер — что ты недавно смотрел и тебе понравилось?' },
-      { en: 'Hi! Is there a hobby you have always wanted to try but never got around to?', ru: 'Привет! Есть хобби, которое ты всегда хотел попробовать, но никак не доходили руки?' }
-    ]
-  },
-  'Собеседование на работу': {
-    easy: [
-      { en: 'Hello! Nice to meet you. What do you like doing most in your work or studies?', ru: 'Здравствуйте! Приятно познакомиться. Что вам больше всего нравится в работе или учёбе?' },
-      { en: 'Hi! Thanks for coming. What are two of your best skills?', ru: 'Привет! Спасибо, что пришли. Какие два ваших главных навыка?' }
-    ],
-    mid: [
-      { en: 'Hello, thanks for joining me! What caught your eye about this role?', ru: 'Здравствуйте, спасибо, что присоединились! Что вас заинтересовало в этой позиции?' },
-      { en: 'Nice to meet you! Could you tell me about a recent project or challenge you are proud of?', ru: 'Приятно познакомиться! Расскажите о недавнем проекте или задаче, которой вы гордитесь?' }
-    ]
-  }
+const FALLBACK_STARTERS_BY_LANG = {
+  en: [
+    { target: 'Hey! Would you rather live by the sea or in a big city?', ru: 'Привет! Ты бы предпочёл жить у моря или в большом городе?' },
+    { target: 'Hi there! What is one small thing that made your week better?', ru: 'Привет! Какая мелочь сделала твою неделю лучше?' }
+  ],
+  fr: [
+    { target: 'Salut ! Tu préfères le café ou le thé le matin ?', ru: 'Привет! Ты предпочитаешь кофе или чай по утрам?' },
+    { target: 'Bonjour ! Qu’est-ce que tu aimes faire pendant ton temps libre ?', ru: 'Привет! Чем ты любишь заниматься в свободное время?' }
+  ],
+  es: [
+    { target: '¡Hola! ¿Prefieres la playa o la montaña para las vacaciones?', ru: 'Привет! Для отпуска ты предпочитаешь пляж или горы?' },
+    { target: '¡Hola! ¿Qué tal va tu semana hasta ahora?', ru: 'Привет! Как пока проходит твоя неделя?' }
+  ],
+  de: [
+    { target: 'Hallo! Bist du eher ein Morgenmensch oder ein Nachtmensch?', ru: 'Привет! Ты скорее жаворонок или сова?' },
+    { target: 'Hi! Was machst du am liebsten am Wochenende?', ru: 'Привет! Чем ты больше всего любишь заниматься на выходных?' }
+  ],
+  it: [
+    { target: 'Ciao! Preferisci il caffè o il tè al mattino?', ru: 'Привет! Ты предпочитаешь кофе или чай утром?' },
+    { target: 'Ciao! Qual è il tuo piatto preferito?', ru: 'Привет! Какое твоё любимое блюдо?' }
+  ],
+  zh: [
+    { target: '你好！你周末一般喜欢做什么？', ru: 'Привет! Чем ты обычно любишь заниматься на выходных?' },
+    { target: '你好！你最喜欢吃什么菜？', ru: 'Привет! Какое блюдо тебе нравится больше всего?' }
+  ],
+  ja: [
+    { target: 'こんにちは！休みの日は何をするのが好きですか？', ru: 'Привет! Чем тебе нравится заниматься в выходные?' },
+    { target: 'こんにちは！好きな食べ物は何ですか？', ru: 'Привет! Какая твоя любимая еда?' }
+  ],
+  ko: [
+    { target: '안녕하세요! 주말에 보통 뭐 하는 걸 좋아해요?', ru: 'Привет! Чем тебе обычно нравится заниматься на выходных?' },
+    { target: '안녕하세요! 제일 좋아하는 음식이 뭐예요?', ru: 'Привет! Какая твоя самая любимая еда?' }
+  ]
 };
 
 function pickRandom(arr) {
@@ -216,12 +232,6 @@ function extractJson(rawText) {
   }
 }
 
-function getFallbackStarter(topic, level) {
-  const bucket = FALLBACK_STARTERS[topic] || FALLBACK_STARTERS['Свободная тема'];
-  const list = (level === 'A1' || level === 'A2') ? bucket.easy : bucket.mid;
-  return pickRandom(list);
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Метод не поддерживается.' });
@@ -244,6 +254,7 @@ export default async function handler(req, res) {
   try {
     const {
       action = 'message',
+      language = 'en',
       audioBase64 = '',
       mimeType = 'audio/webm',
       text = '',
@@ -257,6 +268,8 @@ export default async function handler(req, res) {
       history = []
     } = req.body || {};
 
+    const langCode = LANGUAGE_META[language] ? language : 'en';
+    const lang = LANGUAGE_META[langCode];
     const levelDesc = LEVEL_GUIDANCE[level] || LEVEL_GUIDANCE.B1;
 
     // 1. Быстрый перевод слова или фразы в контексте
@@ -268,8 +281,9 @@ export default async function handler(req, res) {
       }
 
       const trPrompt = `
-Translate the English word or phrase "${cleanWord}" into Russian${cleanCtx ? ` as used in the sentence: "${cleanCtx}"` : ''}.
-Give a concise Russian translation (1-3 words) and a very short usage note or example (max 10 words, or empty string).
+Translate the ${lang.enName} word or phrase "${cleanWord}" into Russian${cleanCtx ? ` as used in the sentence: "${cleanCtx}"` : ''}.
+Give a concise Russian translation (1-3 words) in "translation", and a very short usage note or reading hint in "note" (max 12 words, or empty string).
+${lang.scriptHint || ''}
 `.trim();
 
       const buildTrPayload = (thinkingConfig) => ({
@@ -311,35 +325,37 @@ Give a concise Russian translation (1-3 words) and a very short usage note or ex
 
     // 2. Подробный урок и задания по грамматике
     if (action === 'grammar_lesson') {
-      const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Present Simple';
+      const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Базовая грамматика';
 
       const grammarPrompt = `
-You are Echo, an expert, super-clear English grammar tutor for Russian-speaking learners.
+You are Echo, an expert, super-clear ${lang.enName} grammar tutor for Russian-speaking learners.
+Target language: ${lang.enName}.
 Student level: ${levelDesc}
 Grammar topic: "${targetTopic}"
+${lang.extraNote}
 
-Create a thorough, comprehensive, easy-to-understand grammar guide in Russian covering the ENTIRE topic (never leave out negative forms, questions, or key rules!), plus 5 interactive exercises strictly suited to level ${level}:
+Create a thorough, comprehensive, easy-to-understand grammar guide in Russian covering the ENTIRE topic in ${lang.enName} (never leave out negative forms, questions, or key rules!), plus 5 interactive exercises strictly suited to level ${level}:
 
-1. "topicTitle": clear title (English + Russian).
+1. "topicTitle": clear title (${lang.enName} term + Russian explanation).
 2. "whenToUseRu": 3-4 concise bullet points in plain Russian explaining all main situations when this grammar is used in real life.
 3. "sections": 3 to 4 detailed sub-sections covering EVERY major part of the topic:
-   - If the topic is a tense or verb construction (e.g. Present Simple, Past Simple, Present Perfect, Passive Voice, to be, used to, etc.), you MUST include separate sections for:
+   - If the topic is a tense or verb construction, include separate sections for:
      (1) Утверждение (+)
      (2) Отрицание (−)
-     (3) Вопросы (?) и краткие ответы
-     (4) Важные правила и нюансы (например, окончания -s/-es, неправильные глаголы, сокращения don't/doesn't, порядок слов).
-   - If the topic is non-tense (e.g. Articles, Prepositions, Conditionals, Modals, Gerund/Infinitive, Comparison), break it into 3-4 complete logical blocks covering all core cases and exceptions.
+     (3) Вопросы (?) и ответы
+     (4) Важные правила, окончания и нюансы.
+   - If the topic is non-tense (articles, cases, particles, prepositions, conditionals, modals, etc.), break it into 3-4 complete logical blocks covering all core cases and exceptions.
    - For EACH section provide:
      * "headingRu": clear Russian heading
      * "formula": clear compact formula (or empty string if not applicable)
-     * "explanationRu": thorough, friendly explanation in plain Russian (2-4 sentences, explain WHY and HOW clearly, without dry academic jargon)
-     * "examples": 2-3 natural everyday English examples with Russian translation demonstrating different pronouns/cases.
-4. "markers": 4 to 7 helpful signal words, time markers, or trigger phrases with short Russian translations (e.g. "always (всегда)", "every day (каждый день)"). If no markers apply, provide key trigger words for this rule.
-5. "commonMistakes": 2 to 3 typical mistakes Russian speakers make on this topic, each with "wrongEn", "rightEn", and a short clear "explanationRu".
-6. "exercises": exactly 5 varied exercises testing DIFFERENT aspects of the topic (mix affirmative, negative, questions, and tricky cases!):
-   - First 3 exercises: "type": "choice" with exactly 4 distinct options in "options" (one is the exact "answer").
-   - Last 2 exercises: "type": "input" where the student types 1-3 words for the gap "___" (give a clear cue in "hint", e.g. "not / go" or "she / work?", and set "options": []).
-   - Every exercise MUST include "sentence" with "___", exact "answer", "fullSentence", "translationRu", and "explanationRu" (1-2 clear sentences in Russian explaining why).
+     * "explanationRu": thorough, friendly explanation in plain Russian (2-4 sentences, no dry academic jargon)
+     * "examples": 2-3 natural everyday examples in ${lang.enName} ("target") with Russian translation ("ru").
+4. "markers": 4 to 7 helpful signal words, particles, or trigger phrases in ${lang.enName} with short Russian translations.
+5. "commonMistakes": 2 to 3 typical mistakes Russian speakers make on this topic in ${lang.enName}, each with "wrongTarget", "rightTarget", and a short clear "explanationRu".
+6. "exercises": exactly 5 varied exercises in ${lang.enName} testing DIFFERENT aspects of the topic (mix affirmative, negative, questions, and tricky cases!):
+   - First 3 exercises: "type": "choice" with exactly 4 distinct options in "options" in ${lang.enName} (one is the exact "answer").
+   - Last 2 exercises: "type": "input" where the student types 1-3 words in ${lang.enName} for the gap "___" (give a clear cue in "hint" and set "options": []).
+   - Every exercise MUST include "sentence" in ${lang.enName} containing "___", exact "answer" in ${lang.enName}, "fullSentence" in ${lang.enName}, "translationRu", and "explanationRu" (1-2 clear sentences in Russian explaining why).
    - No markdown symbols (no *, **, #) and no emojis anywhere.
 `.trim();
 
@@ -361,10 +377,10 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
                   items: {
                     type: 'OBJECT',
                     properties: {
-                      en: { type: 'STRING' },
+                      target: { type: 'STRING' },
                       ru: { type: 'STRING' }
                     },
-                    required: ['en', 'ru']
+                    required: ['target', 'ru']
                   }
                 }
               },
@@ -377,11 +393,11 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
             items: {
               type: 'OBJECT',
               properties: {
-                wrongEn: { type: 'STRING' },
-                rightEn: { type: 'STRING' },
+                wrongTarget: { type: 'STRING' },
+                rightTarget: { type: 'STRING' },
                 explanationRu: { type: 'STRING' }
               },
-              required: ['wrongEn', 'rightEn', 'explanationRu']
+              required: ['wrongTarget', 'rightTarget', 'explanationRu']
             }
           },
           exercises: {
@@ -447,8 +463,8 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
               formula: String(s.formula || '').trim(),
               explanationRu: String(s.explanationRu || '').trim(),
               examples: (Array.isArray(s.examples) ? s.examples : [])
-                .filter(e => e && e.en)
-                .map(e => ({ en: String(e.en).trim(), ru: String(e.ru || '').trim() }))
+                .filter(e => e && e.target)
+                .map(e => ({ target: String(e.target).trim(), ru: String(e.ru || '').trim() }))
             }));
 
           const cleanExercises = (Array.isArray(parsed.exercises) ? parsed.exercises : [])
@@ -477,10 +493,10 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
               markers: (Array.isArray(parsed.markers) ? parsed.markers : [])
                 .map(x => String(x || '').trim()).filter(Boolean),
               commonMistakes: (Array.isArray(parsed.commonMistakes) ? parsed.commonMistakes : [])
-                .filter(m => m && m.wrongEn && m.rightEn)
+                .filter(m => m && m.wrongTarget && m.rightTarget)
                 .map(m => ({
-                  wrongEn: String(m.wrongEn).trim(),
-                  rightEn: String(m.rightEn).trim(),
+                  wrongTarget: String(m.wrongTarget).trim(),
+                  rightTarget: String(m.rightTarget).trim(),
                   explanationRu: String(m.explanationRu || '').trim()
                 })),
               exercises: cleanExercises
@@ -506,13 +522,15 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
       }
 
       const askPrompt = `
-You are Echo, a friendly English grammar tutor for Russian learners.
+You are Echo, a friendly ${lang.enName} grammar tutor for Russian learners.
+Target language: ${lang.enName}.
 Student level: ${levelDesc}
 Current grammar topic: "${targetTopic || 'Общая грамматика'}"
 Student question: "${cleanQ}"
+${lang.extraNote}
 
 Answer clearly and thoroughly in Russian (2-5 sentences, easy to understand, no markdown).
-Also give one helpful English example sentence illustrating your answer and its Russian translation.
+Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and its Russian translation ("exampleRu").
 `.trim();
 
       const buildAskPayload = (thinkingConfig) => ({
@@ -525,10 +543,10 @@ Also give one helpful English example sentence illustrating your answer and its 
             type: 'OBJECT',
             properties: {
               answerRu: { type: 'STRING' },
-              exampleEn: { type: 'STRING' },
+              exampleTarget: { type: 'STRING' },
               exampleRu: { type: 'STRING' }
             },
-            required: ['answerRu', 'exampleEn', 'exampleRu']
+            required: ['answerRu', 'exampleTarget', 'exampleRu']
           },
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
@@ -549,7 +567,7 @@ Also give one helpful English example sentence illustrating your answer and its 
 
       return res.status(200).json({
         answerRu: String(parsed.answerRu || '').trim(),
-        exampleEn: String(parsed.exampleEn || '').trim(),
+        exampleTarget: String(parsed.exampleTarget || '').trim(),
         exampleRu: String(parsed.exampleRu || '').trim()
       });
     }
@@ -566,20 +584,21 @@ Also give one helpful English example sentence illustrating your answer and its 
       const chosenStyle = pickRandom(styles);
 
       const readingPrompt = `
-Write ${chosenStyle} in English strictly adapted for a Russian learner at level: ${levelDesc}
+Write ${chosenStyle} strictly in ${lang.enName}, adapted for a Russian learner at level: ${levelDesc}
 Topic: "${finalTopic}".
+${lang.extraNote}
 
 Requirements:
-- Write 2 or 3 short paragraphs (total 6 to 9 natural sentences).
-- Use vocabulary and grammar appropriate for ${level}, including a few useful everyday words worth learning.
-- For each sentence, include its paragraph number in "p" (1, 2, or 3), the English sentence in "en", and an accurate, natural Russian translation in "ru".
+- Write 2 or 3 short paragraphs (total 6 to 9 natural sentences) strictly in ${lang.enName}.
+- Use vocabulary and grammar appropriate for ${level}, including useful everyday words worth learning.
+- For each sentence, include its paragraph number in "p" (1, 2, or 3), the sentence in ${lang.enName} in "target", and an accurate, natural Russian translation in "ru".
 - No markdown, no emojis.
 `.trim();
 
       const readingSchema = {
         type: 'OBJECT',
         properties: {
-          titleEn: { type: 'STRING' },
+          titleTarget: { type: 'STRING' },
           titleRu: { type: 'STRING' },
           sentences: {
             type: 'ARRAY',
@@ -587,14 +606,14 @@ Requirements:
               type: 'OBJECT',
               properties: {
                 p: { type: 'INTEGER' },
-                en: { type: 'STRING' },
+                target: { type: 'STRING' },
                 ru: { type: 'STRING' }
               },
-              required: ['p', 'en', 'ru']
+              required: ['p', 'target', 'ru']
             }
           }
         },
-        required: ['titleEn', 'titleRu', 'sentences']
+        required: ['titleTarget', 'titleRu', 'sentences']
       };
 
       const buildReadPayload = (thinkingConfig) => ({
@@ -609,8 +628,8 @@ Requirements:
       });
 
       const attempts = [
-        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 14000 },
-        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 12000 }
+        { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 15000 },
+        { model: 'gemini-3.5-flash-lite', thinking: null, timeout: 11000 }
       ];
 
       const errors = [];
@@ -635,11 +654,11 @@ Requirements:
           const groupedMap = new Map();
 
           for (const s of rawSentences) {
-            if (!s || typeof s.en !== 'string' || !s.en.trim()) continue;
+            if (!s || typeof s.target !== 'string' || !s.target.trim()) continue;
             const pNum = Number.isFinite(Number(s.p)) ? Number(s.p) : 1;
             if (!groupedMap.has(pNum)) groupedMap.set(pNum, []);
             groupedMap.get(pNum).push({
-              en: s.en.trim(),
+              target: s.target.trim(),
               ru: String(s.ru || '').trim()
             });
           }
@@ -651,7 +670,7 @@ Requirements:
 
           if (cleanParagraphs.length > 0) {
             return res.status(200).json({
-              titleEn: String(parsed.titleEn || finalTopic).trim(),
+              titleTarget: String(parsed.titleTarget || finalTopic).trim(),
               titleRu: String(parsed.titleRu || '').trim(),
               paragraphs: cleanParagraphs
             });
@@ -673,13 +692,15 @@ Requirements:
       const chosenSeed = pickRandom(seeds);
 
       const startPrompt = `
-You are Echo, a friendly spoken English tutor.
+You are Echo, a friendly spoken ${lang.enName} tutor.
+Target language: ${lang.enName}.
 Student level: ${levelDesc}
 Topic: "${topic}"
 Opening scenario: ${chosenSeed}
+${lang.extraNote}
 
-Write a fresh, natural opening message in English (1-2 short sentences ending with an engaging question) and its natural Russian translation.
-Avoid cliché openings like "Hi! I am Echo. How are you today?" — jump right into the vibe of the scenario!
+Write a fresh, natural opening message STRICTLY in ${lang.enName} ("replyTarget", 1-2 short sentences ending with an engaging question) and its natural Russian translation ("replyRu").
+Avoid cliché textbook openings — jump right into the vibe of the scenario!
 No markdown or emojis.
 `.trim();
 
@@ -687,21 +708,21 @@ No markdown or emojis.
         contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
         generationConfig: {
           temperature: 1.0,
-          maxOutputTokens: 300,
+          maxOutputTokens: 320,
           responseMimeType: 'application/json',
           responseSchema: {
             type: 'OBJECT',
             properties: {
-              replyEn: { type: 'STRING' },
+              replyTarget: { type: 'STRING' },
               replyRu: { type: 'STRING' }
             },
-            required: ['replyEn', 'replyRu']
+            required: ['replyTarget', 'replyRu']
           },
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
       });
 
-      let startRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildStartPayload({ thinkingBudget: 0 }), 6000);
+      let startRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildStartPayload({ thinkingBudget: 0 }), 7000);
       if (!startRes.ok && startRes.status === 400) {
         startRes = await callGemini(apiKey, 'gemini-3.5-flash-lite', buildStartPayload(null), 5000);
       }
@@ -711,26 +732,27 @@ No markdown or emojis.
           const parts = startRes.data?.candidates?.[0]?.content?.parts || [];
           const textPart = parts.find(p => !p.thought && typeof p.text === 'string') || parts[parts.length - 1];
           const parsed = extractJson(textPart?.text || '');
-          if (parsed.replyEn) {
+          if (parsed.replyTarget) {
             return res.status(200).json({
               userTranscript: '',
               hasErrors: false,
               correction: '',
               explanationRu: '',
-              replyEn: parsed.replyEn,
+              replyTarget: parsed.replyTarget,
               replyRu: parsed.replyRu || ''
             });
           }
         } catch (_) {}
       }
 
-      const fallback = getFallbackStarter(topic, level);
+      const list = FALLBACK_STARTERS_BY_LANG[langCode] || FALLBACK_STARTERS_BY_LANG.en;
+      const fallback = pickRandom(list);
       return res.status(200).json({
         userTranscript: '',
         hasErrors: false,
         correction: '',
         explanationRu: '',
-        replyEn: fallback.en,
+        replyTarget: fallback.target,
         replyRu: fallback.ru
       });
     }
@@ -745,14 +767,16 @@ No markdown or emojis.
     }
 
     const systemInstruction = `
-You are Echo, a friendly spoken English tutor for Russian-speaking learners.
+You are Echo, a friendly spoken ${lang.enName} tutor for Russian-speaking learners.
+Target language: ${lang.enName}.
 Student level: ${levelDesc}
 Topic: "${topic}".
+${lang.extraNote}
 
 On every message:
-1. Transcribe accurately what the student said in English in "userTranscript".
-2. If there are grammar, word choice, or phrasing mistakes, set "hasErrors": true, give a natural corrected version in "correction", and explain briefly in Russian (1-2 sentences) in "explanationRu". Otherwise set "hasErrors": false, "correction": "", and write short praise in Russian in "explanationRu".
-3. Reply naturally in English in "replyEn" (1-2 short sentences + a light follow-up question, no markdown or emojis) and translate it into Russian in "replyRu".
+1. Transcribe accurately what the student said in ${lang.enName} in "userTranscript".
+2. If there are grammar, word choice, or phrasing mistakes, set "hasErrors": true, give a natural corrected version in ${lang.enName} in "correction", and explain briefly in Russian (1-2 sentences) in "explanationRu". Otherwise set "hasErrors": false, "correction": "", and write short praise in Russian in "explanationRu".
+3. Reply naturally STRICTLY in ${lang.enName} in "replyTarget" (1-2 short sentences + a light follow-up question, no markdown or emojis) and translate it into Russian in "replyRu".
 `.trim();
 
     const contents = [];
@@ -761,7 +785,7 @@ On every message:
     if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
       contents.push({
         role: 'user',
-        parts: [{ text: `Let's practice English on the topic "${topic}".` }]
+        parts: [{ text: `Let's practice ${lang.enName} on the topic "${topic}".` }]
       });
     }
 
@@ -777,10 +801,10 @@ On every message:
     const userParts = [];
     if (audioBase64) {
       const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
-      userParts.push({ text: 'Listen to the student audio, transcribe it, check for mistakes, and respond.' });
+      userParts.push({ text: `Listen to the student audio in ${lang.enName}, transcribe it, check for mistakes, and respond.` });
       userParts.push({ inline_data: { mime_type: cleanMime, data: audioBase64 } });
     } else {
-      userParts.push({ text: `Student message: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond.` });
+      userParts.push({ text: `Student message in ${lang.enName}: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond.` });
     }
 
     contents.push({ role: 'user', parts: userParts });
@@ -790,7 +814,7 @@ On every message:
       contents,
       generationConfig: {
         temperature: 0.8,
-        maxOutputTokens: 700,
+        maxOutputTokens: 750,
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'OBJECT',
@@ -799,10 +823,10 @@ On every message:
             hasErrors: { type: 'BOOLEAN' },
             correction: { type: 'STRING' },
             explanationRu: { type: 'STRING' },
-            replyEn: { type: 'STRING' },
+            replyTarget: { type: 'STRING' },
             replyRu: { type: 'STRING' }
           },
-          required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyEn', 'replyRu']
+          required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
         },
         ...(thinkingConfig ? { thinkingConfig } : {})
       }
@@ -847,8 +871,8 @@ On every message:
       hasErrors: Boolean(parsed.hasErrors),
       correction: parsed.correction || '',
       explanationRu: parsed.explanationRu || '',
-      replyEn: parsed.replyEn || 'Could you say that again?',
-      replyRu: parsed.replyRu || 'Не могли бы вы повторить это ещё раз?'
+      replyTarget: parsed.replyTarget || '...',
+      replyRu: parsed.replyRu || ''
     });
   } catch (err) {
     console.error('Chat API error:', err);
