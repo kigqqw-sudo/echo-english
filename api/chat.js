@@ -168,24 +168,20 @@ const FALLBACK_STARTERS_BY_LANG = {
 };
 
 const GEMINI_HEAVY_MODELS = [
-  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 11000 },
-  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 15000 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 14000 },
-  { model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 12000 }
+  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 8500 },
+  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 18000 },
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 15000 },
+  { model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 14000 }
 ];
 
 const GEMINI_FAST_MODELS = [
   { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 8000 },
-  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 10000 },
+  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 11000 },
   { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 10000 }
 ];
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -279,8 +275,7 @@ async function runGeminiTask({
   apiKey,
   buildPayload,
   models,
-  totalBudgetMs = 26000,
-  retryOverloaded = true,
+  totalBudgetMs = 28000,
   parseResult
 }) {
   const deadline = Date.now() + totalBudgetMs;
@@ -288,26 +283,15 @@ async function runGeminiTask({
 
   for (const attempt of models) {
     const remaining = deadline - Date.now();
-    if (remaining < 2200) break;
+    if (remaining < 2500) break;
 
     const timeout = Math.min(attempt.timeout, remaining);
     let result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), timeout);
 
     if (!result.ok && result.status === 400 && attempt.thinking) {
       const rem2 = deadline - Date.now();
-      if (rem2 >= 2200) {
+      if (rem2 >= 2500) {
         result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(timeout, rem2));
-      }
-    }
-
-    if (!result.ok && retryOverloaded && (result.status === 503 || /high demand|overloaded/i.test(String(result.data?.error?.message || '')))) {
-      const remRetry = deadline - Date.now();
-      if (remRetry >= 4500) {
-        await sleep(700);
-        const remAfterSleep = deadline - Date.now();
-        if (remAfterSleep >= 2500) {
-          result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), Math.min(attempt.timeout, remAfterSleep));
-        }
       }
     }
 
@@ -405,7 +389,6 @@ ${lang.scriptHint || ''}
         apiKey,
         models: GEMINI_FAST_MODELS,
         totalBudgetMs: 18000,
-        retryOverloaded: false,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
           generationConfig: {
@@ -441,35 +424,25 @@ ${lang.scriptHint || ''}
       const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Базовая грамматика';
 
       const grammarPrompt = `
-You are Echo, an expert, super-clear ${lang.enName} grammar tutor for Russian-speaking learners.
+You are Echo, a clear, practical ${lang.enName} grammar tutor for Russian learners.
 Target language: ${lang.enName}.
 Student level: ${levelDesc}
 Grammar topic: "${targetTopic}"
 ${lang.extraNote}
 
-Create a thorough, comprehensive, easy-to-understand grammar guide in Russian covering the ENTIRE topic in ${lang.enName} (never leave out negative forms, questions, or key rules!), plus 5 interactive exercises strictly suited to level ${level}:
+Create a concise, complete grammar lesson in Russian covering the core rules of the topic in ${lang.enName}, plus 5 interactive exercises for level ${level}:
 
 1. "topicTitle": clear title (${lang.enName} term + Russian explanation).
-2. "whenToUseRu": 3-4 concise bullet points in plain Russian explaining all main situations when this grammar is used in real life.
-3. "sections": 3 to 4 detailed sub-sections covering EVERY major part of the topic:
-   - If the topic is a tense or verb construction, include separate sections for:
-     (1) Утверждение (+)
-     (2) Отрицание (−)
-     (3) Вопросы (?) и ответы
-     (4) Важные правила, окончания и нюансы.
-   - If the topic is non-tense (articles, cases, particles, prepositions, conditionals, modals, etc.), break it into 3-4 complete logical blocks covering all core cases and exceptions.
-   - For EACH section provide:
-     * "headingRu": clear Russian heading
-     * "formula": clear compact formula (or empty string if not applicable)
-     * "explanationRu": thorough, friendly explanation in plain Russian (2-4 sentences, no dry academic jargon)
-     * "examples": 2-3 natural everyday examples in ${lang.enName} ("target") with Russian translation ("ru").
-4. "markers": 4 to 7 helpful signal words, particles, or trigger phrases in ${lang.enName} with short Russian translations.
-5. "commonMistakes": 2 to 3 typical mistakes Russian speakers make on this topic in ${lang.enName}, each with "wrongTarget", "rightTarget", and a short clear "explanationRu".
-6. "exercises": exactly 5 varied exercises in ${lang.enName} testing DIFFERENT aspects of the topic (mix affirmative, negative, questions, and tricky cases!):
-   - First 3 exercises: "type": "choice" with exactly 4 distinct options in "options" in ${lang.enName} (one is the exact "answer").
-   - Last 2 exercises: "type": "input" where the student types 1-3 words in ${lang.enName} for the gap "___" (give a clear cue in "hint" and set "options": []).
-   - Every exercise MUST include "sentence" in ${lang.enName} containing "___", exact "answer" in ${lang.enName}, "fullSentence" in ${lang.enName}, "translationRu", and "explanationRu" (1-2 clear sentences in Russian explaining why).
-   - No markdown symbols (no *, **, #) and no emojis anywhere.
+2. "whenToUseRu": 3 concise points in Russian explaining main real-life situations when this grammar is used.
+3. "sections": 3 to 4 structured blocks covering key parts of the topic (affirmative, negative, questions/rules, or main cases). Each block has:
+   * "headingRu": short Russian heading
+   * "formula": short formula or pattern (or "")
+   * "explanationRu": clear 1-2 sentence Russian explanation
+   * "examples": 2 natural examples in ${lang.enName} ("target") with Russian translation ("ru").
+4. "markers": 4 to 5 signal words or phrases in ${lang.enName} with short Russian translations.
+5. "commonMistakes": 2 typical mistakes Russian speakers make on this topic, each with "wrongTarget", "rightTarget", and a short "explanationRu".
+6. "exercises": 5 exercises in ${lang.enName} (first 3: "type": "choice" with 4 distinct "options"; last 2: "type": "input" with "options": [] and a short "hint"). Each has "promptRu", "sentence" with "___", exact "answer", "fullSentence", "translationRu", and brief "explanationRu".
+- No markdown symbols (*, **, #) and no emojis.
 `.trim();
 
       const grammarSchema = {
@@ -538,12 +511,12 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
       const task = await runGeminiTask({
         apiKey,
         models: GEMINI_HEAVY_MODELS,
-        totalBudgetMs: 26000,
+        totalBudgetMs: 28000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 4500,
+            maxOutputTokens: 3600,
             responseMimeType: 'application/json',
             responseSchema: grammarSchema,
             ...(thinkingConfig ? { thinkingConfig } : {})
@@ -668,268 +641,4 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
 
     // 4. Генерация адаптированного текста для вкладки «Чтение»
     if (action === 'reading') {
-      const finalTopic = String(customTopic || '').trim().slice(0, 120) || topic;
-      const styles = [
-        'a short relatable story from everyday life',
-        'an interesting mini-article with surprising facts',
-        'a vivid diary entry about a memorable day',
-        'a light practical guide or life observation'
-      ];
-      const chosenStyle = pickRandom(styles);
-
-      const readingPrompt = `
-Write ${chosenStyle} strictly in ${lang.enName}, adapted for a Russian learner at level: ${levelDesc}
-Topic: "${finalTopic}".
-${lang.extraNote}
-
-Requirements:
-- Write 2 or 3 short paragraphs (total 6 to 9 natural sentences) strictly in ${lang.enName}.
-- Use vocabulary and grammar appropriate for ${level}, including useful everyday words worth learning.
-- For each sentence, include its paragraph number in "p" (1, 2, or 3), the sentence in ${lang.enName} in "target", and an accurate, natural Russian translation in "ru".
-- No markdown, no emojis.
-`.trim();
-
-      const readingSchema = {
-        type: 'OBJECT',
-        properties: {
-          titleTarget: { type: 'STRING' },
-          titleRu: { type: 'STRING' },
-          sentences: {
-            type: 'ARRAY',
-            items: {
-              type: 'OBJECT',
-              properties: {
-                p: { type: 'INTEGER' },
-                target: { type: 'STRING' },
-                ru: { type: 'STRING' }
-              },
-              required: ['p', 'target', 'ru']
-            }
-          }
-        },
-        required: ['titleTarget', 'titleRu', 'sentences']
-      };
-
-      const task = await runGeminiTask({
-        apiKey,
-        models: GEMINI_HEAVY_MODELS,
-        totalBudgetMs: 26000,
-        buildPayload: (thinkingConfig) => ({
-          contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
-          generationConfig: {
-            temperature: 0.75,
-            maxOutputTokens: 2400,
-            responseMimeType: 'application/json',
-            responseSchema: readingSchema,
-            ...(thinkingConfig ? { thinkingConfig } : {})
-          }
-        }),
-        parseResult: (parsed) => {
-          const rawSentences = Array.isArray(parsed.sentences) ? parsed.sentences : [];
-          const groupedMap = new Map();
-
-          for (const s of rawSentences) {
-            const txt = s && (s.target || s.en);
-            if (!txt || typeof txt !== 'string' || !txt.trim()) continue;
-            const pNum = Number.isFinite(Number(s.p)) ? Number(s.p) : 1;
-            if (!groupedMap.has(pNum)) groupedMap.set(pNum, []);
-            groupedMap.get(pNum).push({
-              target: txt.trim(),
-              ru: String(s.ru || '').trim()
-            });
-          }
-
-          const cleanParagraphs = Array.from(groupedMap.entries())
-            .sort((a, b) => a[0] - b[0])
-            .map(([, list]) => list)
-            .filter(list => list.length > 0);
-
-          if (cleanParagraphs.length === 0) return null;
-
-          return {
-            titleTarget: String(parsed.titleTarget || parsed.titleEn || finalTopic).trim(),
-            titleRu: String(parsed.titleRu || '').trim(),
-            paragraphs: cleanParagraphs
-          };
-        }
-      });
-
-      if (!task.ok) {
-        return res.status(502).json({
-          error: formatOverloadError('Не удалось создать текст.', task.errors)
-        });
-      }
-
-      return res.status(200).json(task.value);
-    }
-
-    // 5. Разнообразный старт диалога
-    if (action === 'start') {
-      const seeds = SCENARIO_SEEDS[topic] || SCENARIO_SEEDS['Свободная тема'];
-      const chosenSeed = pickRandom(seeds);
-
-      const startPrompt = `
-You are Echo, a friendly spoken ${lang.enName} tutor.
-Target language: ${lang.enName}.
-Student level: ${levelDesc}
-Topic: "${topic}"
-Opening scenario: ${chosenSeed}
-${lang.extraNote}
-
-Write a fresh, natural opening message STRICTLY in ${lang.enName} ("replyTarget", 1-2 short sentences ending with an engaging question) and its natural Russian translation ("replyRu").
-Avoid cliché textbook openings — jump right into the vibe of the scenario!
-No markdown or emojis.
-`.trim();
-
-      const task = await runGeminiTask({
-        apiKey,
-        models: GEMINI_FAST_MODELS,
-        totalBudgetMs: 14000,
-        retryOverloaded: false,
-        buildPayload: (thinkingConfig) => ({
-          contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
-          generationConfig: {
-            temperature: 1.0,
-            maxOutputTokens: 320,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'OBJECT',
-              properties: {
-                replyTarget: { type: 'STRING' },
-                replyRu: { type: 'STRING' }
-              },
-              required: ['replyTarget', 'replyRu']
-            },
-            ...(thinkingConfig ? { thinkingConfig } : {})
-          }
-        }),
-        parseResult: (parsed) => {
-          const reply = parsed.replyTarget || parsed.replyEn;
-          if (!reply) return null;
-          return {
-            userTranscript: '',
-            hasErrors: false,
-            correction: '',
-            explanationRu: '',
-            replyTarget: String(reply).trim(),
-            replyRu: String(parsed.replyRu || '').trim()
-          };
-        }
-      });
-
-      if (task.ok) {
-        return res.status(200).json(task.value);
-      }
-
-      const list = FALLBACK_STARTERS_BY_LANG[langCode] || FALLBACK_STARTERS_BY_LANG.en;
-      const fallback = pickRandom(list);
-      return res.status(200).json({
-        userTranscript: '',
-        hasErrors: false,
-        correction: '',
-        explanationRu: '',
-        replyTarget: fallback.target,
-        replyRu: fallback.ru
-      });
-    }
-
-    // 6. Основной диалог (голос или текст)
-    if (audioBase64 && audioBase64.length > MAX_AUDIO_BASE64_LENGTH) {
-      return res.status(413).json({ error: 'Аудио слишком большое. Попробуйте записать сообщение короче 45 секунд.' });
-    }
-
-    if (!audioBase64 && !String(text).trim()) {
-      return res.status(400).json({ error: 'Пустое сообщение.' });
-    }
-
-    const systemInstruction = `
-You are Echo, a friendly spoken ${lang.enName} tutor for Russian-speaking learners.
-Target language: ${lang.enName}.
-Student level: ${levelDesc}
-Topic: "${topic}".
-${lang.extraNote}
-
-On every message:
-1. Transcribe accurately what the student said in ${lang.enName} in "userTranscript".
-2. If there are grammar, word choice, or phrasing mistakes, set "hasErrors": true, give a natural corrected version in ${lang.enName} in "correction", and explain briefly in Russian (1-2 sentences) in "explanationRu". Otherwise set "hasErrors": false, "correction": "", and write short praise in Russian in "explanationRu".
-3. Reply naturally STRICTLY in ${lang.enName} in "replyTarget" (1-2 short sentences + a light follow-up question, no markdown or emojis) and translate it into Russian in "replyRu".
-`.trim();
-
-    const contents = [];
-    const safeHistory = Array.isArray(history) ? history.slice(-10) : [];
-
-    if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
-      contents.push({
-        role: 'user',
-        parts: [{ text: `Let's practice ${lang.enName} on the topic "${topic}".` }]
-      });
-    }
-
-    for (const item of safeHistory) {
-      if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
-        contents.push({
-          role: item.role,
-          parts: [{ text: item.text.slice(0, 800) }]
-        });
-      }
-    }
-
-    const userParts = [];
-    if (audioBase64) {
-      const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
-      userParts.push({ text: `Listen to the student audio in ${lang.enName}, transcribe it, check for mistakes, and respond.` });
-      userParts.push({ inline_data: { mime_type: cleanMime, data: audioBase64 } });
-    } else {
-      userParts.push({ text: `Student message in ${lang.enName}: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond.` });
-    }
-
-    contents.push({ role: 'user', parts: userParts });
-
-    const task = await runGeminiTask({
-      apiKey,
-      models: GEMINI_HEAVY_MODELS,
-      totalBudgetMs: 26000,
-      buildPayload: (thinkingConfig) => ({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents,
-        generationConfig: {
-          temperature: 0.8,
-          maxOutputTokens: 750,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              userTranscript: { type: 'STRING' },
-              hasErrors: { type: 'BOOLEAN' },
-              correction: { type: 'STRING' },
-              explanationRu: { type: 'STRING' },
-              replyTarget: { type: 'STRING' },
-              replyRu: { type: 'STRING' }
-            },
-            required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
-          },
-          ...(thinkingConfig ? { thinkingConfig } : {})
-        }
-      }),
-      parseResult: (parsed) => ({
-        userTranscript: String(parsed.userTranscript || text || '').trim(),
-        hasErrors: Boolean(parsed.hasErrors),
-        correction: String(parsed.correction || '').trim(),
-        explanationRu: String(parsed.explanationRu || '').trim(),
-        replyTarget: String(parsed.replyTarget || parsed.replyEn || '...').trim(),
-        replyRu: String(parsed.replyRu || '').trim()
-      })
-    });
-
-    if (!task.ok) {
-      return res.status(502).json({
-        error: formatOverloadError('Не удалось получить ответ от ИИ.', task.errors)
-      });
-    }
-
-    return res.status(200).json(task.value);
-  } catch (err) {
-    console.error('Chat API error:', err);
-    return res.status(500).json({ error: 'Ошибка сервера: ' + (err?.message || 'попробуйте ещё раз.') });
-  }
-}
+      const finalTopic = String
