@@ -167,17 +167,22 @@ const FALLBACK_STARTERS_BY_LANG = {
   ]
 };
 
-// Цепочки моделей: если основная перегружена (503 / high demand), сервер сразу переключается на запасную
+// Расширенная цепочка моделей: при 503/404 сервер за доли секунды переходит к следующей
 const MODELS_HEAVY = [
-  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 14000 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 13000 },
-  { model: 'gemini-3.8-flash', thinking: { thinkingLevel: 'minimal' }, timeout: 11000 }
+  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 9000 },
+  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 9000 },
+  { model: 'gemini-flash-lite-latest', thinking: { thinkingBudget: 0 }, timeout: 8000 },
+  { model: 'gemini-2.5-flash', thinking: { thinkingBudget: 0 }, timeout: 8000 },
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 7000 },
+  { model: 'gemini-3.8-flash', thinking: { thinkingBudget: 0 }, timeout: 7000 }
 ];
 
 const MODELS_FAST = [
-  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 6500 },
-  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 6500 },
-  { model: 'gemini-3.8-flash', thinking: { thinkingLevel: 'minimal' }, timeout: 6000 }
+  { model: 'gemini-3.5-flash-lite', thinking: { thinkingBudget: 0 }, timeout: 5500 },
+  { model: 'gemini-3.5-flash', thinking: { thinkingBudget: 0 }, timeout: 5500 },
+  { model: 'gemini-flash-lite-latest', thinking: { thinkingBudget: 0 }, timeout: 5000 },
+  { model: 'gemini-2.5-flash', thinking: { thinkingBudget: 0 }, timeout: 5000 },
+  { model: 'gemini-flash-latest', thinking: { thinkingBudget: 0 }, timeout: 5000 }
 ];
 
 function pickRandom(arr) {
@@ -245,26 +250,34 @@ function extractJson(rawText) {
   }
 }
 
-async function runGeminiTask({ apiKey, buildPayload, models, totalBudgetMs = 26000, parseResult }) {
+function shortErrorText(msg, status) {
+  const clean = String(msg || status || '').replace(/\s+/g, ' ').trim();
+  if (/high demand|overloaded|unavailable/i.test(clean)) return '503 перегрузка';
+  if (/not found|no longer available/i.test(clean) || status === 404) return '404 недоступна';
+  if (/quota|rate limit|resource exhausted/i.test(clean) || status === 429) return '429 лимит';
+  return clean.length > 55 ? clean.slice(0, 55) + '…' : clean;
+}
+
+async function runGeminiTask({ apiKey, buildPayload, models, totalBudgetMs = 25000, parseResult }) {
   const deadline = Date.now() + totalBudgetMs;
   const errors = [];
 
   for (const attempt of models) {
     const remaining = deadline - Date.now();
-    if (remaining < 2200) break;
+    if (remaining < 2000) break;
 
     const timeout = Math.min(attempt.timeout, remaining);
     let result = await callGemini(apiKey, attempt.model, buildPayload(attempt.thinking), timeout);
 
     if (!result.ok && result.status === 400 && attempt.thinking) {
       const rem2 = deadline - Date.now();
-      if (rem2 >= 2200) {
-        result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(attempt.timeout, rem2));
+      if (rem2 >= 2000) {
+        result = await callGemini(apiKey, attempt.model, buildPayload(null), Math.min(6500, rem2));
       }
     }
 
     if (!result.ok) {
-      errors.push(`${attempt.model}: ${result.data?.error?.message || result.status}`);
+      errors.push(`${attempt.model}: ${shortErrorText(result.data?.error?.message, result.status)}`);
       continue;
     }
 
@@ -293,10 +306,10 @@ async function runGeminiTask({ apiKey, buildPayload, models, totalBudgetMs = 260
 
 function formatOverloadError(prefix, errors) {
   const joined = errors.join(' | ');
-  if (/high demand|overloaded|unavailable|503|429/i.test(joined)) {
-    return `${prefix} Серверы ИИ сейчас временно перегружены — попробуйте ещё раз через пару секунд.`;
+  if (/перегрузка|high demand|overloaded|503|429/i.test(joined)) {
+    return `${prefix} Серверы ИИ временно перегружены — попробуйте ещё раз через пару секунд. [${joined}]`;
   }
-  return `${prefix} (${joined})`;
+  return `${prefix} [${joined}]`;
 }
 
 export default async function handler(req, res) {
@@ -489,7 +502,7 @@ Create a thorough, comprehensive, easy-to-understand grammar guide in Russian co
       const task = await runGeminiTask({
         apiKey,
         models: MODELS_HEAVY,
-        totalBudgetMs: 26000,
+        totalBudgetMs: 25000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
           generationConfig: {
@@ -664,7 +677,7 @@ Requirements:
       const task = await runGeminiTask({
         apiKey,
         models: MODELS_HEAVY,
-        totalBudgetMs: 26000,
+        totalBudgetMs: 25000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
           generationConfig: {
@@ -836,7 +849,7 @@ On every message:
     const task = await runGeminiTask({
       apiKey,
       models: MODELS_HEAVY,
-      totalBudgetMs: 26000,
+      totalBudgetMs: 25000,
       buildPayload: (thinkingConfig) => ({
         system_instruction: { parts: [{ text: systemInstruction }] },
         contents,
