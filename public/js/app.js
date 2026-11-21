@@ -1,6 +1,7 @@
-import { LEVELS, CHAT_TOPICS, GRAMMAR_TOPICS } from './data.js';
+import { LANGUAGES, LEVELS, CHAT_TOPICS, GRAMMAR_TOPICS_BY_LANG } from './data.js';
 
 // --- DOM-элементы ---
+const langSelect = document.getElementById('langSelect');
 const levelSelect = document.getElementById('levelSelect');
 const topicSelect = document.getElementById('topicSelect');
 const themeBtn = document.getElementById('themeBtn');
@@ -54,6 +55,7 @@ const deleteFromQuickBtn = document.getElementById('deleteFromQuickBtn');
 const confirmSaveBtn = document.getElementById('confirmSaveBtn');
 const saveWordForm = document.getElementById('saveWordForm');
 const swWord = document.getElementById('swWord');
+const swWordLabel = document.getElementById('swWordLabel');
 const swTranslation = document.getElementById('swTranslation');
 const swNote = document.getElementById('swNote');
 const swPlayBtn = document.getElementById('swPlayBtn');
@@ -63,7 +65,7 @@ const tabCards = document.getElementById('tabCards');
 const notesView = document.getElementById('notesView');
 const cardsView = document.getElementById('cardsView');
 const manualAddForm = document.getElementById('manualAddForm');
-const manualEn = document.getElementById('manualEn');
+const manualTarget = document.getElementById('manualEn');
 const manualRu = document.getElementById('manualRu');
 const manualNote = document.getElementById('manualNote');
 const vocabListEl = document.getElementById('vocabList');
@@ -71,9 +73,10 @@ const toastEl = document.getElementById('toast');
 
 // --- Состояние ---
 const MAX_SECONDS = 45;
-const VOCAB_STORAGE_KEY = 'echo_vocab_v1';
 const THEME_STORAGE_KEY = 'echo_theme_v1';
+const LANG_STORAGE_KEY = 'echo_lang_v1';
 
+let currentLangCode = loadSavedLang();
 let currentMode = 'chat';
 let vocabTab = 'notes';
 
@@ -103,16 +106,44 @@ let animFrame = null;
 let timerInterval = null;
 let recStartTime = 0;
 
-let preferredVoice = null;
+let availableVoices = [];
 let activeVoiceBar = null;
 let activeReadingPlayBtn = null;
 
-let vocab = loadVocab();
+let vocab = [];
 let fcQueue = [];
 let fcTotal = 0;
 let fcKnown = 0;
 let fcFlipped = false;
-let fcDirection = 'en-ru';
+let fcDirection = 'target-ru';
+
+// --- Языковые хелперы ---
+function loadSavedLang() {
+  try {
+    const saved = localStorage.getItem(LANG_STORAGE_KEY);
+    if (saved && LANGUAGES.some(l => l.code === saved)) return saved;
+  } catch (_) {}
+  return 'en';
+}
+
+function getCurrentLang() {
+  return LANGUAGES.find(l => l.code === currentLangCode) || LANGUAGES[0];
+}
+
+function getVocabStorageKey(code = currentLangCode) {
+  // Для английского оставляем старый ключ, чтобы сохранились все прежние заметки
+  return code === 'en' ? 'echo_vocab_v1' : `echo_vocab_v1_${code}`;
+}
+
+function updateLanguageLabels() {
+  const lang = getCurrentLang();
+  textInput.placeholder = `Напишите фразу ${lang.nameRuPrep}...`;
+  grammarCustomInput.placeholder = lang.grammarPlaceholder;
+  manualTarget.placeholder = `Слово ${lang.nameRuPrep} (${lang.short})`;
+  if (swWordLabel) {
+    swWordLabel.textContent = `Слово или фраза (${lang.short})`;
+  }
+}
 
 // --- Тема (светлая / тёмная) ---
 function moonSvg() {
@@ -140,18 +171,34 @@ themeBtn.addEventListener('click', () => {
 
 // --- Инициализация списков в шапке ---
 function initSelects() {
-  levelSelect.innerHTML = LEVELS.map(l => `<option value="${escapeHtml(l.value)}">${escapeHtml(l.label)}</option>`).join('');
+  langSelect.innerHTML = LANGUAGES
+    .map(l => `<option value="${escapeHtml(l.code)}">${escapeHtml(l.short)} · ${escapeHtml(l.nameRu)}</option>`)
+    .join('');
+  langSelect.value = currentLangCode;
+
+  levelSelect.innerHTML = LEVELS
+    .map(l => `<option value="${escapeHtml(l.value)}">${escapeHtml(l.label)}</option>`)
+    .join('');
   levelSelect.value = 'B1';
 
-  topicSelect.innerHTML = CHAT_TOPICS.map(t => `<option value="${escapeHtml(t.value)}">${escapeHtml(t.label)}</option>`).join('');
+  topicSelect.innerHTML = CHAT_TOPICS
+    .map(t => `<option value="${escapeHtml(t.value)}">${escapeHtml(t.label)}</option>`)
+    .join('');
 }
 
-// --- Словарь (localStorage) ---
+// --- Словарь (отдельный для каждого языка) ---
 function loadVocab() {
   try {
-    const raw = localStorage.getItem(VOCAB_STORAGE_KEY);
+    const raw = localStorage.getItem(getVocabStorageKey());
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // Поддержка старых записей, где поле называлось en
+    return parsed.map(item => ({
+      id: item.id || (Date.now() + Math.random().toString(16).slice(2, 6)),
+      target: String(item.target || item.en || '').trim(),
+      ru: String(item.ru || '').trim(),
+      note: String(item.note || '').trim()
+    })).filter(item => item.target);
   } catch (_) {
     return [];
   }
@@ -160,7 +207,7 @@ function loadVocab() {
 function isWordSaved(word) {
   const target = String(word || '').trim().toLowerCase();
   if (!target) return false;
-  return vocab.some(v => v.en.toLowerCase() === target);
+  return vocab.some(v => v.target.toLowerCase() === target);
 }
 
 function refreshSavedWordHighlights() {
@@ -171,7 +218,7 @@ function refreshSavedWordHighlights() {
 
 function persistVocab() {
   try {
-    localStorage.setItem(VOCAB_STORAGE_KEY, JSON.stringify(vocab));
+    localStorage.setItem(getVocabStorageKey(), JSON.stringify(vocab));
   } catch (_) {}
   updateVocabBadge();
   refreshSavedWordHighlights();
@@ -189,20 +236,20 @@ function showToast(msg) {
   showToast._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
 }
 
-function addVocabEntry(en, ru, note = '') {
-  const cleanEn = String(en || '').trim();
+function addVocabEntry(targetWord, ru, note = '') {
+  const cleanTarget = String(targetWord || '').trim();
   const cleanRu = String(ru || '').trim();
   const cleanNote = String(note || '').trim();
-  if (!cleanEn || !cleanRu) return;
+  if (!cleanTarget || !cleanRu) return;
 
-  const existingIdx = vocab.findIndex(v => v.en.toLowerCase() === cleanEn.toLowerCase());
+  const existingIdx = vocab.findIndex(v => v.target.toLowerCase() === cleanTarget.toLowerCase());
   if (existingIdx !== -1) {
-    vocab[existingIdx] = { ...vocab[existingIdx], en: cleanEn, ru: cleanRu, note: cleanNote };
+    vocab[existingIdx] = { ...vocab[existingIdx], target: cleanTarget, ru: cleanRu, note: cleanNote };
     showToast('Заметка обновлена');
   } else {
     vocab.unshift({
       id: Date.now() + Math.random().toString(16).slice(2, 6),
-      en: cleanEn,
+      target: cleanTarget,
       ru: cleanRu,
       note: cleanNote
     });
@@ -219,6 +266,45 @@ function deleteVocabEntry(id) {
   persistVocab();
   renderVocabList();
 }
+
+// --- Смена языка ---
+function handleLanguageChange(newCode) {
+  stopSpeech();
+  if (isRecording) stopRecording(true);
+
+  currentLangCode = newCode;
+  try {
+    localStorage.setItem(LANG_STORAGE_KEY, newCode);
+  } catch (_) {}
+
+  vocab = loadVocab();
+  updateVocabBadge();
+  updateLanguageLabels();
+
+  readingLoadedOnce = false;
+  readingContent.innerHTML = '';
+  activeGrammarTopic = '';
+  grammarLesson = null;
+  customTopicInput.value = '';
+  grammarCustomInput.value = '';
+
+  const lang = getCurrentLang();
+  showToast(`Язык: ${lang.nameRu}`);
+
+  if (currentMode === 'chat') {
+    startConversation();
+  } else if (currentMode === 'reading') {
+    generateReadingText();
+  } else if (currentMode === 'grammar') {
+    renderGrammarTopicChips();
+  } else if (currentMode === 'vocab') {
+    switchVocabTab(vocabTab);
+  }
+}
+
+langSelect.addEventListener('change', () => {
+  handleLanguageChange(langSelect.value);
+});
 
 // --- Навигация между вкладками ---
 function switchMode(mode) {
@@ -237,7 +323,6 @@ function switchMode(mode) {
   grammarView.classList.toggle('active', mode === 'grammar');
   vocabView.classList.toggle('active', mode === 'vocab');
 
-  // Показываем в шапке только актуальные контролы
   levelSelect.classList.toggle('is-hidden', mode === 'vocab');
   topicSelect.classList.toggle('is-hidden', mode === 'grammar' || mode === 'vocab');
   autoPlayBtn.classList.toggle('is-hidden', mode !== 'chat');
@@ -261,9 +346,12 @@ navButtons.vocab.addEventListener('click', () => switchMode('vocab'));
 
 // --- Вкладка «Грамматика» ---
 function renderGrammarTopicChips() {
+  const lang = getCurrentLang();
   const lvl = levelSelect.value;
-  const topics = GRAMMAR_TOPICS[lvl] || GRAMMAR_TOPICS.B1;
-  grammarTopicsLabel.textContent = `Темы грамматики для уровня ${lvl}`;
+  const langTopics = GRAMMAR_TOPICS_BY_LANG[lang.code] || GRAMMAR_TOPICS_BY_LANG.en;
+  const topics = langTopics[lvl] || langTopics.B1;
+
+  grammarTopicsLabel.textContent = `${lang.nameRu} · грамматика уровня ${lvl}`;
   grammarTopicsChips.innerHTML = '';
 
   topics.forEach(t => {
@@ -283,7 +371,7 @@ function renderGrammarTopicChips() {
       <div class="card" style="text-align:center; padding:28px 20px;">
         <div style="font-size:15px; font-weight:600;">Выберите тему выше или впишите свою</div>
         <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
-          Echo подробно разберёт всю тему под уровень <strong>${escapeHtml(lvl)}</strong> (утверждения, отрицания, вопросы, исключения и частые ошибки) и даст 5 заданий с проверкой.
+          Echo подробно разберёт правило (${escapeHtml(lang.nameRu.toLowerCase())}, уровень <strong>${escapeHtml(lvl)}</strong>) с формулами, примерами и частыми ошибками, а затем даст 5 заданий с проверкой.
         </div>
       </div>
     `;
@@ -303,7 +391,7 @@ async function loadGrammarLesson(topicName) {
   grammarStartBtn.disabled = true;
   grammarStartBtn.textContent = 'Готовим...';
 
-  grammarContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo готовит подробный разбор и задания по теме «${escapeHtml(cleanTopic)}»...</div>`;
+  grammarContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo готовит разбор и задания по теме «${escapeHtml(cleanTopic)}»...</div>`;
 
   try {
     const res = await fetch('/api/chat', {
@@ -311,6 +399,7 @@ async function loadGrammarLesson(topicName) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'grammar_lesson',
+        language: currentLangCode,
         level: levelSelect.value,
         grammarTopic: cleanTopic
       })
@@ -344,7 +433,7 @@ function normalizeGrammarAnswer(str) {
   return String(str || '')
     .toLowerCase()
     .replace(/[’`]/g, "'")
-    .replace(/[.,!?;:]/g, '')
+    .replace(/[.,!?;:。！？、]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -368,15 +457,18 @@ function renderGrammarWorkspace() {
     : '';
 
   const sectionsHtml = (grammarLesson.sections || []).map(sec => {
-    const exHtml = (sec.examples || []).map(ex => `
-      <div class="g-example-row">
-        <div>
-          <div class="g-example-en">${renderClickableText(ex.en)}</div>
-          <div class="g-example-ru">${escapeHtml(ex.ru)}</div>
+    const exHtml = (sec.examples || []).map(ex => {
+      const targetTxt = ex.target || ex.en || '';
+      return `
+        <div class="g-example-row">
+          <div>
+            <div class="g-example-en">${renderClickableText(targetTxt)}</div>
+            <div class="g-example-ru">${escapeHtml(ex.ru)}</div>
+          </div>
+          <button type="button" class="icon-btn g-play-ex" data-text="${escapeHtml(targetTxt)}" title="Прослушать">▶</button>
         </div>
-        <button type="button" class="icon-btn g-play-ex" data-text="${escapeHtml(ex.en)}" title="Прослушать">▶</button>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     return `
       <div class="g-rule-block">
@@ -404,16 +496,20 @@ function renderGrammarWorkspace() {
       <div>
         <div class="g-subhead">Частые ошибки</div>
         <div class="g-mistakes">
-          ${grammarLesson.commonMistakes.map(m => `
-            <div class="g-mistake-row">
-              <div class="g-mistake-wrong">✕ ${escapeHtml(m.wrongEn)}</div>
-              <div class="g-mistake-right-wrap">
-                <span class="g-mistake-right">✓ ${renderClickableText(m.rightEn)}</span>
-                <button type="button" class="icon-btn g-play-ex" style="width:28px; height:28px; font-size:11px;" data-text="${escapeHtml(m.rightEn)}" title="Прослушать">▶</button>
+          ${grammarLesson.commonMistakes.map(m => {
+            const wrongTxt = m.wrongTarget || m.wrongEn || '';
+            const rightTxt = m.rightTarget || m.rightEn || '';
+            return `
+              <div class="g-mistake-row">
+                <div class="g-mistake-wrong">✕ ${escapeHtml(wrongTxt)}</div>
+                <div class="g-mistake-right-wrap">
+                  <span class="g-mistake-right">✓ ${renderClickableText(rightTxt)}</span>
+                  <button type="button" class="icon-btn g-play-ex" style="width:28px; height:28px; font-size:11px;" data-text="${escapeHtml(rightTxt)}" title="Прослушать">▶</button>
+                </div>
+                ${m.explanationRu ? `<div class="g-mistake-exp">${escapeHtml(m.explanationRu)}</div>` : ''}
               </div>
-              ${m.explanationRu ? `<div class="g-mistake-exp">${escapeHtml(m.explanationRu)}</div>` : ''}
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
       </div>
     `
@@ -429,7 +525,7 @@ function renderGrammarWorkspace() {
       ${sectionsHtml ? `<div><div class="g-subhead">Правила и примеры</div><div class="g-blocks">${sectionsHtml}</div></div>` : ''}
       ${markersHtml}
       ${mistakesHtml}
-      <div class="reading-legend" style="padding-top:8px;">Нажмите на любое английское слово в примерах, чтобы перевести и сохранить его в словарь.</div>
+      <div class="reading-legend" style="padding-top:8px;">Нажмите на любое слово в примерах, чтобы перевести и сохранить его в словарь.</div>
     </div>
   `;
 
@@ -464,7 +560,7 @@ function renderGrammarWorkspace() {
   askCard.innerHTML = `
     <div style="font-size:14px; font-weight:700;">Остались вопросы по этой теме?</div>
     <form id="grammarAskForm" class="action-bar">
-      <input id="grammarAskInput" class="field-input" type="text" placeholder="Например: когда пишется -es вместо -s?" required />
+      <input id="grammarAskInput" class="field-input" type="text" placeholder="Задайте любой вопрос по правилу..." required />
       <button id="grammarAskBtn" type="submit" class="primary-btn">Спросить</button>
     </form>
     <div id="grammarAskResult"></div>
@@ -489,6 +585,7 @@ function renderGrammarWorkspace() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'grammar_ask',
+          language: currentLangCode,
           level: levelSelect.value,
           grammarTopic: grammarLesson.topicTitle || activeGrammarTopic,
           question: q
@@ -503,13 +600,14 @@ function renderGrammarWorkspace() {
         return;
       }
 
+      const exText = data.exampleTarget || data.exampleEn || '';
       askResult.innerHTML = `
         <div class="g-ask-answer">
           <div>${escapeHtml(data.answerRu)}</div>
-          ${data.exampleEn ? `
+          ${exText ? `
             <div class="g-example-row">
               <div>
-                <div class="g-example-en">${renderClickableText(data.exampleEn)}</div>
+                <div class="g-example-en">${renderClickableText(exText)}</div>
                 <div class="g-example-ru">${escapeHtml(data.exampleRu)}</div>
               </div>
               <button type="button" class="icon-btn g-play-ask" title="Прослушать">▶</button>
@@ -518,10 +616,10 @@ function renderGrammarWorkspace() {
         </div>
       `;
       const playAsk = askResult.querySelector('.g-play-ask');
-      if (playAsk) playAsk.addEventListener('click', () => speakText(data.exampleEn, 0.95));
+      if (playAsk) playAsk.addEventListener('click', () => speakText(exText, 0.95));
       askResult.addEventListener('click', (ev) => {
         const w = ev.target.closest('.clickable-word');
-        if (w) openQuickSave(w.dataset.word, data.exampleEn);
+        if (w) openQuickSave(w.dataset.word, exText);
       });
       askInput.value = '';
     } catch (_) {
@@ -690,7 +788,8 @@ async function generateReadingText() {
   genReadingBtn.disabled = true;
   genReadingBtn.textContent = 'Создаём...';
 
-  readingContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo пишет адаптированный текст (${escapeHtml(levelSelect.value)})...</div>`;
+  const lang = getCurrentLang();
+  readingContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo пишет текст ${escapeHtml(lang.nameRuPrep)} (${escapeHtml(levelSelect.value)})...</div>`;
 
   try {
     const res = await fetch('/api/chat', {
@@ -698,6 +797,7 @@ async function generateReadingText() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'reading',
+        language: currentLangCode,
         level: levelSelect.value,
         topic: topicSelect.value,
         customTopic: customTopicInput.value.trim()
@@ -724,6 +824,7 @@ async function generateReadingText() {
 }
 
 function renderReadingArticle(data) {
+  const titleTarget = data.titleTarget || data.titleEn || '';
   const allSentences = [];
   const card = document.createElement('article');
   card.className = 'card';
@@ -732,7 +833,7 @@ function renderReadingArticle(data) {
   header.className = 'reading-header';
   header.innerHTML = `
     <div>
-      <div class="reading-title-en">${renderClickableText(data.titleEn)}</div>
+      <div class="reading-title-en">${renderClickableText(titleTarget)}</div>
       ${data.titleRu ? `<div class="reading-title-ru">${escapeHtml(data.titleRu)}</div>` : ''}
     </div>
     <div class="reading-tools">
@@ -750,15 +851,16 @@ function renderReadingArticle(data) {
     pEl.className = 'reading-paragraph';
 
     paragraph.forEach(sent => {
-      allSentences.push(sent.en);
+      const sentText = sent.target || sent.en || '';
+      allSentences.push(sentText);
 
       const unit = document.createElement('span');
       unit.className = 'sentence-unit';
-      unit.dataset.sentenceEn = sent.en;
+      unit.dataset.sentenceTarget = sentText;
 
       const enSpan = document.createElement('span');
       enSpan.className = 'sentence-en';
-      enSpan.innerHTML = renderClickableText(sent.en);
+      enSpan.innerHTML = renderClickableText(sentText);
 
       const tools = document.createElement('span');
       tools.className = 'sentence-tools';
@@ -791,11 +893,11 @@ function renderReadingArticle(data) {
       });
 
       playSentBtn.addEventListener('click', () => {
-        speakText(sent.en, readingSpeed);
+        speakText(sentText, readingSpeed);
       });
 
       ruBox.querySelector('.save-sent-btn').addEventListener('click', () => {
-        openQuickSave(sent.en, '', '', sent.ru || '');
+        openQuickSave(sentText, '', '', sent.ru || '');
       });
 
       unit.appendChild(enSpan);
@@ -819,11 +921,11 @@ function renderReadingArticle(data) {
     const wordEl = e.target.closest('.clickable-word');
     if (!wordEl) return;
     const unit = wordEl.closest('.sentence-unit');
-    const ctx = unit ? unit.dataset.sentenceEn : data.titleEn;
+    const ctx = unit ? unit.dataset.sentenceTarget : titleTarget;
     openQuickSave(wordEl.dataset.word, ctx);
   });
 
-  const fullText = [data.titleEn, ...allSentences].join('. ');
+  const fullText = [titleTarget, ...allSentences].join('. ');
   const readAllPlayBtn = header.querySelector('#readAllPlayBtn');
   const readSpeedBtn = header.querySelector('#readSpeedBtn');
   const readToggleAllBtn = header.querySelector('#readToggleAllBtn');
@@ -873,7 +975,7 @@ async function openQuickSave(word, contextSentence = '', presetNote = '', preset
   swNote.value = presetNote;
   saveModal.classList.add('open');
 
-  const existing = vocab.find(v => v.en.toLowerCase() === cleanWord.toLowerCase());
+  const existing = vocab.find(v => v.target.toLowerCase() === cleanWord.toLowerCase());
   if (existing) {
     swTranslation.value = existing.ru;
     if (!presetNote) swNote.value = existing.note || '';
@@ -901,6 +1003,7 @@ async function openQuickSave(word, contextSentence = '', presetNote = '', preset
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'translate',
+        language: currentLangCode,
         word: cleanWord,
         context: contextSentence
       })
@@ -961,10 +1064,11 @@ function switchVocabTab(tab) {
 }
 
 function renderVocabList() {
+  const lang = getCurrentLang();
   if (vocab.length === 0) {
     vocabListEl.innerHTML = `
       <div class="empty-state">
-        В заметках пока пусто.<br>
+        Словарь (${escapeHtml(lang.nameRu.toLowerCase())}) пока пуст.<br>
         Нажмите на любое незнакомое слово в «Диалоге», «Чтении» или «Грамматике» — либо добавьте его выше.
       </div>
     `;
@@ -977,7 +1081,7 @@ function renderVocabList() {
     row.className = 'vocab-item';
     row.innerHTML = `
       <div class="vocab-main">
-        <div class="vocab-en">${escapeHtml(item.en)}</div>
+        <div class="vocab-en">${escapeHtml(item.target)}</div>
         <div class="vocab-ru">${escapeHtml(item.ru)}</div>
         ${item.note ? `<div class="vocab-note">${escapeHtml(item.note)}</div>` : ''}
       </div>
@@ -986,17 +1090,18 @@ function renderVocabList() {
         <button type="button" class="icon-btn del-item" title="Удалить">✕</button>
       </div>
     `;
-    row.querySelector('.play-item').addEventListener('click', () => speakText(item.en, 0.9));
+    row.querySelector('.play-item').addEventListener('click', () => speakText(item.target, 0.9));
     row.querySelector('.del-item').addEventListener('click', () => deleteVocabEntry(item.id));
     vocabListEl.appendChild(row);
   }
 }
 
 function startFlashcardsSession() {
+  const lang = getCurrentLang();
   if (vocab.length === 0) {
     cardsView.innerHTML = `
       <div class="empty-state">
-        Чтобы учить слова по карточкам, сначала сохраните хотя бы одно слово в заметки.
+        Чтобы учить слова (${escapeHtml(lang.nameRu.toLowerCase())}) по карточкам, сначала сохраните хотя бы одно слово в заметки.
       </div>
     `;
     return;
@@ -1025,20 +1130,21 @@ function renderFlashcard() {
     return;
   }
 
+  const lang = getCurrentLang();
   const current = fcQueue[0];
-  const showEnFront = fcDirection === 'en-ru';
-  const frontLang = showEnFront ? 'English' : 'Русский';
-  const backLang = showEnFront ? 'Русский' : 'English';
-  const frontText = showEnFront ? current.en : current.ru;
-  const backText = showEnFront ? current.ru : current.en;
+  const showTargetFront = fcDirection === 'target-ru';
+  const frontLang = showTargetFront ? lang.nativeName : 'Русский';
+  const backLang = showTargetFront ? 'Русский' : lang.nativeName;
+  const frontText = showTargetFront ? current.target : current.ru;
+  const backText = showTargetFront ? current.ru : current.target;
 
   cardsView.innerHTML = `
     <div class="fc-top">
       <span>Изучено: ${fcKnown} из ${fcTotal}</span>
-      <button type="button" id="fcDirBtn" class="chip-btn">${showEnFront ? 'EN → RU' : 'RU → EN'}</button>
+      <button type="button" id="fcDirBtn" class="chip-btn">${showTargetFront ? `${escapeHtml(lang.short)} → RU` : `RU → ${escapeHtml(lang.short)}`}</button>
     </div>
     <div id="fcCard" class="fc-card ${fcFlipped ? 'flipped' : ''}">
-      <div class="fc-lang">${fcFlipped ? backLang : frontLang}</div>
+      <div class="fc-lang">${escapeHtml(fcFlipped ? backLang : frontLang)}</div>
       <div class="fc-word">${escapeHtml(fcFlipped ? backText : frontText)}</div>
       ${fcFlipped && current.note ? `<div class="fc-note">${escapeHtml(current.note)}</div>` : ''}
       <button type="button" id="fcPlayBtn" class="chip-btn">▶ Произношение</button>
@@ -1051,14 +1157,14 @@ function renderFlashcard() {
   `;
 
   cardsView.querySelector('#fcDirBtn').addEventListener('click', () => {
-    fcDirection = fcDirection === 'en-ru' ? 'ru-en' : 'en-ru';
+    fcDirection = fcDirection === 'target-ru' ? 'ru-target' : 'target-ru';
     fcFlipped = false;
     renderFlashcard();
   });
 
   cardsView.querySelector('#fcPlayBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    speakText(current.en, 0.9);
+    speakText(current.target, 0.9);
   });
 
   cardsView.querySelector('#fcCard').addEventListener('click', () => {
@@ -1094,29 +1200,37 @@ tabCards.addEventListener('click', () => switchVocabTab('cards'));
 
 manualAddForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  addVocabEntry(manualEn.value, manualRu.value, manualNote.value);
-  manualEn.value = '';
+  addVocabEntry(manualTarget.value, manualRu.value, manualNote.value);
+  manualTarget.value = '';
   manualRu.value = '';
   manualNote.value = '';
   renderVocabList();
 });
 
-// --- Озвучка (TTS) ---
+// --- Озвучка (TTS под выбранный язык) ---
 function loadVoices() {
   if (!('speechSynthesis' in window)) return;
-  const voices = window.speechSynthesis.getVoices();
-  const enVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('en'));
-  preferredVoice =
-    enVoices.find(v => /google us english/i.test(v.name)) ||
-    enVoices.find(v => /samantha|alex|daniel|karen/i.test(v.name)) ||
-    enVoices.find(v => v.lang === 'en-US') ||
-    enVoices[0] ||
-    null;
+  availableVoices = window.speechSynthesis.getVoices() || [];
 }
 
 if ('speechSynthesis' in window) {
   loadVoices();
   window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+function getVoiceForCurrentLang() {
+  const lang = getCurrentLang();
+  const prefix = lang.code.toLowerCase();
+  const exact = lang.ttsLang.toLowerCase();
+  const matching = availableVoices.filter(v => v.lang && v.lang.toLowerCase().startsWith(prefix));
+  if (matching.length === 0) return null;
+
+  return (
+    matching.find(v => /google|microsoft|natural|online/i.test(v.name) && v.lang.toLowerCase() === exact) ||
+    matching.find(v => /google|natural|samantha|thomas|amélie|monica|anna|yuna|kyoko/i.test(v.name)) ||
+    matching.find(v => v.lang.toLowerCase() === exact) ||
+    matching[0]
+  );
 }
 
 function stopSpeech() {
@@ -1145,10 +1259,13 @@ function speakText(text, rate = 1.0, voiceBarEl = null, readingBtnEl = null) {
   }
 
   stopSpeech();
+  const lang = getCurrentLang();
   const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = 'en-US';
+  utter.lang = lang.ttsLang;
   utter.rate = rate;
-  if (preferredVoice) utter.voice = preferredVoice;
+
+  const voice = getVoiceForCurrentLang();
+  if (voice) utter.voice = voice;
 
   if (voiceBarEl) {
     activeVoiceBar = voiceBarEl;
@@ -1188,7 +1305,7 @@ function primeSpeech() {
   }
 }
 
-// --- Вспомогательные функции ---
+// --- Вспомогательные функции (поддержка всех алфавитов) ---
 function escapeHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')
@@ -1199,7 +1316,28 @@ function escapeHtml(str) {
 
 function renderClickableText(text) {
   const str = String(text || '');
-  const regex = /[A-Za-z]+(?:['’-][A-Za-z]+)*/g;
+  const lang = getCurrentLang();
+
+  // Для китайского и японского разбиваем текст через встроенный Intl.Segmenter
+  if (lang.useSegmenter && typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+    try {
+      const segmenter = new Intl.Segmenter(lang.code, { granularity: 'word' });
+      let out = '';
+      for (const seg of segmenter.segment(str)) {
+        if (seg.isWordLike) {
+          const w = seg.segment;
+          const savedCls = isWordSaved(w) ? ' saved' : '';
+          out += `<span class="clickable-word${savedCls}" data-word="${escapeHtml(w)}">${escapeHtml(w)}</span>`;
+        } else {
+          out += escapeHtml(seg.segment);
+        }
+      }
+      return out;
+    } catch (_) {}
+  }
+
+  // Для европейских языков (включая французские акценты/апострофы) и корейского
+  const regex = /[\p{L}\p{M}]+(?:['’-][\p{L}\p{M}]+)*/gu;
   let out = '';
   let lastIndex = 0;
   let match;
@@ -1256,7 +1394,7 @@ function showError(msg) {
 }
 
 // --- Отрисовка сообщений диалога ---
-function renderAiMessage(replyEn, replyRu) {
+function renderAiMessage(replyTarget, replyRu) {
   const group = document.createElement('div');
   group.className = 'msg-group ai';
 
@@ -1273,11 +1411,11 @@ function renderAiMessage(replyEn, replyRu) {
         <button type="button" class="speed-btn" title="Скорость речи">1.0x</button>
       </div>
       <div class="toggle-row">
-        <button type="button" class="chip-btn" data-toggle="en">Текст</button>
+        <button type="button" class="chip-btn" data-toggle="target">Текст</button>
         <button type="button" class="chip-btn" data-toggle="ru">Перевод</button>
       </div>
-      <div class="hidden-box en">
-        ${renderClickableText(replyEn)}
+      <div class="hidden-box target">
+        ${renderClickableText(replyTarget)}
         <span class="word-tap-hint">Нажмите на любое слово, чтобы перевести и сохранить в заметки</span>
       </div>
       <div class="hidden-box ru">${escapeHtml(replyRu)}</div>
@@ -1287,41 +1425,41 @@ function renderAiMessage(replyEn, replyRu) {
   const voiceBar = group.querySelector('.voice-bar');
   const playBtn = group.querySelector('.play-btn');
   const speedBtn = group.querySelector('.speed-btn');
-  const enBox = group.querySelector('.hidden-box.en');
+  const targetBox = group.querySelector('.hidden-box.target');
   const ruBox = group.querySelector('.hidden-box.ru');
 
-  playBtn.addEventListener('click', () => speakText(replyEn, currentRate, voiceBar));
+  playBtn.addEventListener('click', () => speakText(replyTarget, currentRate, voiceBar));
 
   speedBtn.addEventListener('click', () => {
     currentRate = currentRate === 1.0 ? 0.8 : 1.0;
     speedBtn.textContent = currentRate.toFixed(1) + 'x';
     if (activeVoiceBar === voiceBar) {
       stopSpeech();
-      speakText(replyEn, currentRate, voiceBar);
+      speakText(replyTarget, currentRate, voiceBar);
     }
   });
 
   group.querySelectorAll('.chip-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const target = btn.dataset.toggle === 'en' ? enBox : ruBox;
+      const target = btn.dataset.toggle === 'target' ? targetBox : ruBox;
       const isOpen = target.classList.toggle('show');
       btn.classList.toggle('open', isOpen);
       scrollToBottom();
     });
   });
 
-  enBox.addEventListener('click', (e) => {
+  targetBox.addEventListener('click', (e) => {
     const span = e.target.closest('.clickable-word');
     if (!span) return;
     const word = span.dataset.word;
-    if (word) openQuickSave(word, replyEn);
+    if (word) openQuickSave(word, replyTarget);
   });
 
   chatEl.appendChild(group);
   scrollToBottom();
 
   if (autoPlay && currentMode === 'chat') {
-    speakText(replyEn, currentRate, voiceBar);
+    speakText(replyTarget, currentRate, voiceBar);
   }
 }
 
@@ -1388,7 +1526,8 @@ async function startConversation() {
   stopSpeech();
   history = [];
   chatEl.innerHTML = '';
-  setBusy(true, 'Echo готовит тему...');
+  const lang = getCurrentLang();
+  setBusy(true, `Echo готовит диалог (${lang.nameRu.toLowerCase()})...`);
 
   try {
     const res = await fetch('/api/chat', {
@@ -1396,6 +1535,7 @@ async function startConversation() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'start',
+        language: currentLangCode,
         level: levelSelect.value,
         topic: topicSelect.value
       })
@@ -1409,8 +1549,9 @@ async function startConversation() {
       return;
     }
 
-    history.push({ role: 'model', text: data.replyEn });
-    renderAiMessage(data.replyEn, data.replyRu);
+    const replyTxt = data.replyTarget || data.replyEn || '';
+    history.push({ role: 'model', text: replyTxt });
+    renderAiMessage(replyTxt, data.replyRu);
   } catch (_) {
     setBusy(false);
     showError('Ошибка сети. Проверьте подключение и попробуйте ещё раз.');
@@ -1434,6 +1575,7 @@ async function sendUserMessage({ audioBlob = null, mimeType = '', text = '' }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'message',
+        language: currentLangCode,
         audioBase64,
         mimeType,
         text,
@@ -1453,13 +1595,14 @@ async function sendUserMessage({ audioBlob = null, mimeType = '', text = '' }) {
     }
 
     const finalTranscript = data.userTranscript || text || '—';
+    const replyTxt = data.replyTarget || data.replyEn || '';
     transcriptEl.textContent = finalTranscript;
     appendFeedback(group, data);
 
     history.push({ role: 'user', text: finalTranscript });
-    history.push({ role: 'model', text: data.replyEn });
+    history.push({ role: 'model', text: replyTxt });
 
-    renderAiMessage(data.replyEn, data.replyRu);
+    renderAiMessage(replyTxt, data.replyRu);
   } catch (_) {
     setBusy(false);
     showError('Ошибка соединения с сервером.');
@@ -1694,6 +1837,8 @@ const savedTheme = (() => {
 
 applyTheme(savedTheme);
 initSelects();
+vocab = loadVocab();
 updateVocabBadge();
+updateLanguageLabels();
 renderGrammarTopicChips();
 startConversation();
