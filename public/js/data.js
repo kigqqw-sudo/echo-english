@@ -1,3 +1,86 @@
+export const LANGUAGES = [
+  {
+    code: 'en',
+    short: 'EN',
+    nameRu: 'Английский',
+    nameRuPrep: 'на английском',
+    nativeName: 'English',
+    ttsLang: 'en-US',
+    useSegmenter: false,
+    grammarPlaceholder: 'Или своя тема (напр. разница for и since)...'
+  },
+  {
+    code: 'fr',
+    short: 'FR',
+    nameRu: 'Французский',
+    nameRuPrep: 'на французском',
+    nativeName: 'Français',
+    ttsLang: 'fr-FR',
+    useSegmenter: false,
+    grammarPlaceholder: 'Или своя тема (напр. Passé composé и Imparfait)...'
+  },
+  {
+    code: 'es',
+    short: 'ES',
+    nameRu: 'Испанский',
+    nameRuPrep: 'на испанском',
+    nativeName: 'Español',
+    ttsLang: 'es-ES',
+    useSegmenter: false,
+    grammarPlaceholder: 'Или своя тема (напр. разница ser и estar)...'
+  },
+  {
+    code: 'de',
+    short: 'DE',
+    nameRu: 'Немецкий',
+    nameRuPrep: 'на немецком',
+    nativeName: 'Deutsch',
+    ttsLang: 'de-DE',
+    useSegmenter: false,
+    grammarPlaceholder: 'Или своя тема (напр. падежи Akkusativ и Dativ)...'
+  },
+  {
+    code: 'it',
+    short: 'IT',
+    nameRu: 'Итальянский',
+    nameRuPrep: 'на итальянском',
+    nativeName: 'Italiano',
+    ttsLang: 'it-IT',
+    useSegmenter: false,
+    grammarPlaceholder: 'Или своя тема (напр. артикли il, lo, la)...'
+  },
+  {
+    code: 'zh',
+    short: 'ZH',
+    nameRu: 'Китайский',
+    nameRuPrep: 'на китайском',
+    nativeName: '中文',
+    ttsLang: 'zh-CN',
+    useSegmenter: true,
+    grammarPlaceholder: 'Или своя тема (напр. частица 了 или конструкция 把)...'
+  },
+  {
+    code: 'ja',
+    short: 'JA',
+    nameRu: 'Японский',
+    nameRuPrep: 'на японском',
+    nativeName: '日本語',
+    ttsLang: 'ja-JP',
+    useSegmenter: true,
+    grammarPlaceholder: 'Или своя тема (напр. разница частиц は и が)...'
+  },
+  {
+    code: 'ko',
+    short: 'KO',
+    nameRu: 'Корейский',
+    nameRuPrep: 'на корейском',
+    nativeName: '한국어',
+    ttsLang: 'ko-KR',
+    useSegmenter: false,
+    grammarPlaceholder: 'Или своя тема (напр. частицы 은/는 и 이/가)...'
+  }
+];
+
 export const LEVELS = [
   { value: 'A1', label: 'A1 · Начальный' },
   { value: 'A2', label: 'A2 · Базовый' },
@@ -15,45 +98,61 @@ export const CHAT_TOPICS = [
   { value: 'Собеседование на работу', label: 'Собеседование' }
 ];
 
-export const GRAMMAR_TOPICS = {
-  A1: [
-    'Глагол to be (am/is/are)',
-    'Present Simple',
-    'Артикли a / an / the',
-    'There is / There are',
-    'Past Simple (базовый)',
-    'Предлоги in / on / at'
-  ],
-  A2: [
-    'Present Simple vs Continuous',
-    'Past Continuous',
-    'Будущее: will и going to',
-    'Present Perfect (основы)',
-    'Степени сравнения прилагательных',
-    'Модальные глаголы (can/must/should)'
-  ],
-  B1: [
-    'Present Perfect vs Past Simple',
-    'Условные предложения (1 и 2 тип)',
-    'Пассивный залог (Passive Voice)',
-    'Герундий и инфинитив (-ing / to)',
-    'Used to и Would',
-    'Косвенная речь (Reported Speech)'
-  ],
-  B2: [
-    'Past Perfect и Narrative Tenses',
-    '3rd и Mixed Conditionals',
-    'Модальные глаголы в прошлом',
-    'Relative Clauses (who/which/that)',
-    'Конструкция have something done',
-    'Wish и If only'
-  ],
-  C1: [
-    'Инверсия (Negative Inversion)',
-    'Cleft Sentences (It is... that)',
-    'Participle Clauses',
-    'Unreal Past и Subjunctive',
-    'Future Perfect и Continuous',
-    'Сложные предлоги и связки'
-  ]
+export const GRAMMAR_TOPICS_BY_LANG = {
+  en: {
+    A1: ['Глагол to be (am/is/are)', 'Present Simple', 'Артикли a / an / the', 'There is / There are', 'Past Simple (базовый)', 'Предлоги in / on / at'],
+    A2: ['Present Simple vs Continuous', 'Past Continuous', 'Будущее: will и going to', 'Present Perfect (основы)', 'Степени сравнения прилагательных', 'Модальные глаголы (can/must/should)'],
+    B1: ['Present Perfect vs Past Simple', 'Условные предложения (1 и 2 тип)', 'Пассивный залог (Passive Voice)', 'Герундий и инфинитив (-ing / to)', 'Used to и Would', 'Косвенная речь (Reported Speech)'],
+    B2: ['Past Perfect и Narrative Tenses', '3rd и Mixed Conditionals', 'Модальные глаголы в прошлом', 'Relative Clauses (who/which/that)', 'Конструкция have something done', 'Wish и If only'],
+    C1: ['Инверсия (Negative Inversion)', 'Cleft Sentences (It is... that)', 'Participle Clauses', 'Unreal Past и Subjunctive', 'Future Perfect и Continuous', 'Сложные предлоги и связки']
+  },
+  fr: {
+    A1: ['Глаголы être и avoir', 'Артикли le/la/les и un/une/des', 'Настоящее время (глаголы на -er)', 'Отрицание ne ... pas', 'Конструкция il y a', 'Вопросы (est-ce que и интонация)'],
+    A2: ['Passé composé (avoir и être)', 'Ближайшее будущее (Futur proche)', 'Частичный артикль (du/de la/des)', 'Возвратные глаголы (se lever)', 'Imparfait (основы)', 'Предлоги места (à, en, au, chez)'],
+    B1: ['Passé composé vs Imparfait', 'Futur simple', 'Местоимения-дополнения (le/la/lui/leur)', 'Местоимения y и en', 'Conditionnel présent', 'Сложные союзы и относительные qui/que/où'],
+    B2: ['Subjonctif présent', 'Plus-que-parfait', 'Условные предложения с si', 'Пассивный залог (La voix passive)', 'Косвенная речь и согласование времён', 'Gérondif и Participe présent'],
+    C1: ['Subjonctif passé и нюансы', 'Conditionnel passé', 'Логические связки (bien que, quoique)', 'Инверсия в вопросах и стиле', 'Причастия и сложные обороты', 'Тонкости предлогов и управления глаголов']
+  },
+  es: {
+    A1: ['Глаголы ser и estar (основы)', 'Артикли el/la/los/las и un/una', 'Presente de indicativo (правильные)', 'Глагол gustar', 'Глагол hay (есть/имеется)', 'Притяжательные местоимения'],
+    A2: ['Ser vs Estar (разница)', 'Pretérito perfecto (he comido)', 'Pretérito indefinido (основы)', 'Конструкция ir a + инфинитив', 'Возвратные глаголы (levantarse)', 'Предлоги por и para (база)'],
+    B1: ['Pretérito indefinido vs Imperfecto', 'Futuro simple', 'Повелительное наклонение (Imperativo)', 'Прямые и косвенные дополнения (lo/la/le)', 'Subjuntivo presente (введение)', 'Сложные случаи por и para'],
+    B2: ['Subjuntivo в придаточных предложениях', 'Pluscuamperfecto', 'Condicional simple', 'Условные предложения (Si tuviera...)', 'Пассивные конструкции с se', 'Перифразы (llevar + gerundio и др.)'],
+    C1: ['Imperfecto и Pluscuamperfecto de subjuntivo', 'Смешанные условные предложения', 'Согласование времён в косвенной речи', 'Стилистические обороты и инверсия', 'Тонкости глаголов изменения состояния', 'Дискурсивные маркеры и связки']
+  },
+  de: {
+    A1: ['Глаголы sein и haben', 'Артикли der / die / das', 'Настоящее время (Präsens)', 'Порядок слов (глагол на 2-м месте)', 'Отрицание nicht и kein', 'Отделяемые приставки (aufstehen)'],
+    A2: ['Падеж Akkusativ', 'Падеж Dativ', 'Прошедшее время Perfekt', 'Модальные глаголы (können/müssen/wollen)', 'Предлоги с Akkusativ и Dativ', 'Союзы weil, dass, wenn'],
+    B1: ['Präteritum и разница с Perfekt', 'Склонение прилагательных', 'Passiv (страдательный залог)', 'Konjunktiv II (вежливость и мечты)', 'Относительные предложения (Relativsätze)', 'Инфинитив с zu и um ... zu'],
+    B2: ['Plusquamperfekt', 'Konjunktiv II в прошлом', 'Passiv с модальными глаголами', 'Двойные союзы (entweder... oder)', 'Причастия Partizip I и II как определения', 'Управление глаголов с предлогами'],
+    C1: ['Konjunktiv I (косвенная речь)', 'Альтернативы пассиву', 'Номинализация и сложные определения', 'Субъективное значение модальных глаголов', 'Сложные уступительные и следственные союзы', 'Модальные частицы (doch, ja, mal, eben)']
+  },
+  it: {
+    A1: ['Глаголы essere и avere', 'Определённые артикли (il, lo, la, i, gli, le)', 'Настоящее время (Presente indicativo)', 'Конструкция c’è / ci sono', 'Глагол piacere', 'Простые предлоги (di, a, da, in, con)'],
+    A2: ['Passato prossimo (avere и essere)', 'Сочленённые предлоги (del, al, nel)', 'Возвратные глаголы', 'Imperfetto (основы)', 'Futuro semplice', 'Местоимения прямого дополнения (lo/la/li/le)'],
+    B1: ['Passato prossimo vs Imperfetto', 'Condizionale presente', 'Частицы ci и ne', 'Повелительное наклонение (Imperativo)', 'Комбинированные местоимения (me lo, te la)', 'Степени сравнения'],
+    B2: ['Congiuntivo presente и passato', 'Trapassato prossimo', 'Условные предложения (Periodo ipotetico)', 'Пассивный залог (essere и venire)', 'Косвенная речь', 'Относительные местоимения (che, cui, il quale)'],
+    C1: ['Congiuntivo imperfetto и trapassato', 'Passato remoto в литературе и речи', 'Согласование времён в сложных фразах', 'Инфинитивные и герундиальные обороты', 'Прономиналиные глаголы (farcela, andarsene)', 'Стилистические связки']
+  },
+  zh: {
+    A1: ['Порядок слов (Подлежащее + Глагол + Объект)', 'Глагол-связка 是 (shì) и 有 (yǒu)', 'Вопросы с 吗 (ma) и вопросительными словами', 'Отрицание 不 (bù) и 没 (méi)', 'Счётные слова (个, 本, 杯)', 'Притяжательная частица 的 (de)'],
+    A2: ['Частица завершённости 了 (le)', 'Опыт с 过 (guò)', 'Настоящее длительное (正在 / 在)', 'Модальные глаголы (会, 能, 可以, 想)', 'Сравнение с 比 (bǐ)', 'Указание места с 在 (zài)'],
+    B1: ['Конструкция с 把 (bǎ)', 'Пассивная конструкция с 被 (bèi)', 'Дополнение результата (看懂, 听见)', 'Дополнение направления (进来, 出去)', 'Конструкция 是……的 (shì...de)', 'Сложные союзы (因为…所以, 虽然…但是)'],
+    B2: ['Дополнение возможности (看得懂 / 看不懂)', 'Разница 就 (jiù) и 才 (cái)', 'Условные связки (如果, 只要, 只有)', 'Усиление с 连……都/也', 'Переносные значения направлений (起来, 下去)', 'Сравнение похожих наречий (又, 再, 还)'],
+    C1: ['Книжные союзы и конструкции (尽管, 无论, 与其…不如)', 'Четырёхиероглифные идиомы (чэнъюй) в грамматике', 'Скрытые пассивные и безличные обороты', 'Тонкости модальных частиц (嘛, 呢, 吧, 罢了)', 'Сложные рамочные конструкции (在…下, 对…来说)', 'Стилистика официальной и живой речи']
+  },
+  ja: {
+    A1: ['Связка です (вежливое утверждение и отрицание)', 'Частицы は, が, を', 'Частицы места и времени に, で, へ', 'Вежливая форма глаголов ます / ません', 'Прошедшее время глаголов (ました)', 'Прилагательные на い и な'],
+    A2: ['て-форма глаголов (просьбы ください, действия подряд)', 'Длительное действие ている', 'Разрешение и запрет (てもいい / てはいけない)', 'Словарная форма и план (つもり / たい)', 'Сравнение (より / のほうが)', 'Причины с から и ので'],
+    B1: ['Обычная (нейтральная) речь и форма た', 'Потенциальная форма (могу сделать)', 'Условные формы (たら, ば, と, なら)', 'Глаголы давания и получения (あげる/もらう/くれる)', 'Выражение мнения и пересказа (と思う / そうだ)', 'Относительные придаточные определения'],
+    B2: ['Пассивный залог (受身形)', 'Побудительный залог (使役形)', 'Вежливая речь Кэйго (尊敬語 и 謙譲語)', 'Выражения ожидания и причины (はず, わけ, ために)', 'Уступительные конструкции (のに, ても, にもかかわらず)', 'Изменение состояния (ようになる / ことにする)'],
+    C1: ['Побудительно-пассивная форма (使役受身)', 'Продвинутые конструкции письменной речи (にあたって, に際して)', 'Тонкости оттенков уверенности (に違いない, わけがない)', 'Сложные связки и эмфаза (こそ, さえ, ばかりか)', 'Нюансы Кэйго в деловой переписке', 'Разговорные сокращения носителей']
+  },
+  ko: {
+    A1: ['Порядок слов и связка 이에요/예요', 'Частицы темы и подлежащего 은/는 и 이/가', 'Частица объекта 을/를 и места 에/에서', 'Вежливый стиль 아요/어요', 'Отрицание 안 и 못', 'Прошедшее время 았어요/었어요'],
+    A2: ['Будущее время (으)ㄹ 거예요', 'Умение и возможность (으)ㄹ 수 있다/없다', 'Просьба и желание (고 싶다 / 아/어 주세요)', 'Причина и следствие (아/어서 и (으)니까)', 'Связки «и / но» (고, 지만, 는데)', 'Обязанность (아/어야 되다/하다)'],
+    B1: ['Определения с глаголами (는 / (으)ㄴ / (으)ㄹ)', 'Косвенная речь (-다고 하다 / -냐고 하다)', 'Условия и предположения ((으)면, -(으)ㄹ까요)', 'Попытка и опыт (아/어 보다, (으)ㄴ 적이 있다)', 'Изменение состояния (아/어지다, 게 되다)', 'Вежливый суффикс -(으)시-'],
+    B2: ['Пассив и каузатив (피동 и 사동)', 'Сложные причины (기 때문에, 는 바람에, 는 탓에)', 'Выражение сожаления и догадки (-(으)ㄹ걸, -나 보다)', 'Официально-вежливый стиль (습니다/습니까)', 'Уступительные связки (더라도, 아/어도, 는데도)', 'Конструкции цели ((으)려고, 기 위해)'],
+    C1: ['Книжные и новостные конструкции (-는 바, -(으)ㅁ에 따라)', 'Тонкости оттенков эмоций (-거든, -잖아, -다니)', 'Сложные условные и ограничительные обороты (-는 한, -기만 하면)', 'Идиоматические грамматические связки', 'Продвинутая вежливость и деловой стиль', 'Естественные разговорные сокращения']
+  }
 };
