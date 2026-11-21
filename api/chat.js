@@ -439,8 +439,41 @@ function formatOverloadError(prefix, errors) {
 }
 
 export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    const t0 = Date.now();
+    const cfg = getSupabaseConfig();
+    if (!cfg.enabled) {
+      return res.status(200).json({
+        ok: false,
+        reason: 'missing_env',
+        hasUrl: Boolean(cfg.url),
+        hasKey: Boolean(cfg.key),
+        supabaseEnvNames: Object.keys(process.env).filter(k => k.toUpperCase().includes('SUP'))
+      });
+    }
+    try {
+      const r = await fetchWithTimeout(
+        `${cfg.url}/rest/v1/grammar_lessons?select=id,language,level,topic_key&limit=5`,
+        { method: 'GET', headers: getSupabaseHeaders(cfg.key) },
+        4500
+      );
+      const body = await r.text();
+      return res.status(200).json({
+        ok: r.ok,
+        status: r.status,
+        ms: Date.now() - t0,
+        urlHost: cfg.url.replace(/^https?:\/\//, ''),
+        keyPrefix: cfg.key.slice(0, 10),
+        sample: body.slice(0, 300)
+      });
+    } catch (e) {
+      return res.status(200).json({ ok: false, ms: Date.now() - t0, error: e?.message || 'fetch_error' });
+    }
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Метод не поддерживается.' });
+  }
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
