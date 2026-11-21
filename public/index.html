@@ -21,6 +21,7 @@
         Echo
       </div>
       <div class="controls">
+        <select id="langSelect" title="Изучаемый язык"></select>
         <select id="levelSelect" title="Уровень"></select>
         <select id="topicSelect" title="Тема"></select>
         <button id="themeBtn" class="icon-btn" title="Тёмная тема"></button>
@@ -88,7 +89,7 @@
           <div id="grammarTopicsChips" class="g-topic-chips"></div>
         </div>
         <form id="grammarCustomForm" class="action-bar">
-          <input id="grammarCustomInput" class="field-input" type="text" placeholder="Или впишите свою тему (напр. разница for и since)..." />
+          <input id="grammarCustomInput" class="field-input" type="text" placeholder="Или впишите свою тему..." />
           <button id="grammarStartBtn" type="submit" class="primary-btn">Начать</button>
         </form>
         <div id="grammarContent"></div>
@@ -153,7 +154,7 @@
       <form id="saveWordForm" class="modal-body">
         <div class="field-group">
           <div class="word-head">
-            <label class="field-label" for="swWord">Слово или фраза</label>
+            <label id="swWordLabel" class="field-label" for="swWord">Слово или фраза</label>
             <button type="button" id="swPlayBtn" class="chip-btn">▶ Послушать</button>
           </div>
           <input id="swWord" class="field-input" type="text" required />
@@ -164,7 +165,7 @@
         </div>
         <div class="field-group">
           <label class="field-label" for="swNote">Заметка или пример (необязательно)</label>
-          <input id="swNote" class="field-input" type="text" placeholder="Например, контекст из текста" />
+          <input id="swNote" class="field-input" type="text" placeholder="Например, контекст или чтение" />
         </div>
         <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:4px;">
           <button type="button" id="deleteFromQuickBtn" class="secondary-btn" style="display:none; color:var(--danger); border-color:var(--danger-border);">Удалить</button>
