@@ -73,7 +73,10 @@ function resetSeenKeepLast(clientIp, bucket, lastId) {
 }
 
 function getSupabaseConfig() {
-  const url = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const url = (process.env.SUPABASE_URL || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/rest\/v1$/i, '');
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   return { url, key, enabled: Boolean(url && key) };
 }
@@ -88,6 +91,16 @@ function getSupabaseHeaders(key, extra = {}) {
     headers.Authorization = `Bearer ${key}`;
   }
   return headers;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function supabaseSelect(table, queryString) {
@@ -287,16 +300,6 @@ function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function callGemini(apiKey, model, payload, timeoutMs) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   try {
@@ -467,13 +470,16 @@ export default async function handler(req, res) {
         sample: body.slice(0, 300)
       });
     } catch (e) {
-      return res.status(200).json({ ok: false, ms: Date.now() - t0, error: e?.message || 'fetch_error' });
+      return res.status(200).json({
+        ok: false,
+        ms: Date.now() - t0,
+        error: e?.message || 'fetch_error'
+      });
     }
   }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Метод не поддерживается.' });
-  }
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
@@ -855,7 +861,6 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
         });
       }
 
-      // Все тексты в библиотеке прочитаны или тема новая — пробуем сгенерировать новый
       const styles = [
         'a short relatable story from everyday life',
         'an interesting mini-article with surprising facts',
@@ -965,7 +970,6 @@ Requirements:
         });
       }
 
-      // Мягкая страховка: если ИИ перегружен, но в базе уже есть тексты — начинаем новый круг без повтора последнего
       if (dbTexts.length > 0) {
         const lastId = serverSeen[serverSeen.length - 1];
         const pool = dbTexts.length > 1 ? dbTexts.filter(r => r.id !== lastId) : dbTexts;
@@ -978,7 +982,6 @@ Requirements:
         });
       }
 
-      // Если для выбранного уровня текстов нет, но это стандартная тема — подстрахуем текстом того же языка
       if (!hasCustom) {
         const anyLevelTexts = await supabaseSelect(
           'reading_texts',
