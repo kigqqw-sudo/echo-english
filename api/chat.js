@@ -3,6 +3,7 @@ const RATE_LIMIT_MAX_REQUESTS = 100;
 const MAX_AUDIO_BASE64_LENGTH = 4_000_000;
 
 const ipBuckets = new Map();
+const seenHistoryByClient = new Map();
 
 function checkRateLimit(ip) {
   const now = Date.now();
@@ -28,6 +29,108 @@ function checkRateLimit(ip) {
   }
 
   return { allowed: true };
+}
+
+function normalizeKey(str) {
+  return String(str || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 180);
+}
+
+function getSeenList(clientIp, bucket) {
+  const mapKey = `${clientIp}:${bucket}`;
+  const entry = seenHistoryByClient.get(mapKey);
+  if (!entry || Date.now() - entry.updatedAt > 6 * 60 * 60 * 1000) {
+    return [];
+  }
+  return entry.ids;
+}
+
+function markSeenId(clientIp, bucket, id) {
+  if (!id) return;
+  const mapKey = `${clientIp}:${bucket}`;
+  const current = getSeenList(clientIp, bucket).filter(x => x !== id);
+  current.push(id);
+  seenHistoryByClient.set(mapKey, {
+    ids: current.slice(-50),
+    updatedAt: Date.now()
+  });
+
+  if (seenHistoryByClient.size > 2000) {
+    const oldestKey = seenHistoryByClient.keys().next().value;
+    if (oldestKey) seenHistoryByClient.delete(oldestKey);
+  }
+}
+
+function resetSeenKeepLast(clientIp, bucket, lastId) {
+  const mapKey = `${clientIp}:${bucket}`;
+  seenHistoryByClient.set(mapKey, {
+    ids: lastId ? [lastId] : [],
+    updatedAt: Date.now()
+  });
+}
+
+function getSupabaseConfig() {
+  const url = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  return { url, key, enabled: Boolean(url && key) };
+}
+
+function getSupabaseHeaders(key, extra = {}) {
+  const headers = {
+    apikey: key,
+    'Content-Type': 'application/json',
+    ...extra
+  };
+  if (!key.startsWith('sb_')) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
+async function supabaseSelect(table, queryString) {
+  const { url, key, enabled } = getSupabaseConfig();
+  if (!enabled) return [];
+  try {
+    const res = await fetchWithTimeout(
+      `${url}/rest/v1/${table}?${queryString}`,
+      {
+        method: 'GET',
+        headers: getSupabaseHeaders(key)
+      },
+      4500
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function supabaseInsertIgnore(table, onConflict, row) {
+  const { url, key, enabled } = getSupabaseConfig();
+  if (!enabled) return null;
+  try {
+    const res = await fetchWithTimeout(
+      `${url}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`,
+      {
+        method: 'POST',
+        headers: getSupabaseHeaders(key, {
+          Prefer: 'resolution=ignore-duplicates,return=representation'
+        }),
+        body: JSON.stringify(row)
+      },
+      4500
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data) && data.length > 0 ? data[0] : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 const LANGUAGE_META = {
@@ -275,9 +378,13 @@ async function runGeminiTask({
   apiKey,
   buildPayload,
   models,
-  totalBudgetMs = 28000,
+  totalBudgetMs = 24000,
   parseResult
 }) {
+  if (!apiKey) {
+    return { ok: false, errors: ['GEMINI_API_KEY не настроен'] };
+  }
+
   const deadline = Date.now() + totalBudgetMs;
   const errors = [];
 
@@ -337,8 +444,10 @@ export default async function handler(req, res) {
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) {
-    return res.status(500).json({ error: 'На сервере не настроен GEMINI_API_KEY.' });
+  const supabaseEnabled = getSupabaseConfig().enabled;
+
+  if (!apiKey && !supabaseEnabled) {
+    return res.status(500).json({ error: 'На сервере не настроены ключи ИИ или базы данных.' });
   }
 
   const rawIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
@@ -364,19 +473,36 @@ export default async function handler(req, res) {
       question = '',
       level = 'B1',
       topic = 'Свободная тема',
-      history = []
+      history = [],
+      seenIds = []
     } = req.body || {};
 
     const langCode = LANGUAGE_META[language] ? language : 'en';
     const lang = LANGUAGE_META[langCode];
     const levelDesc = LEVEL_GUIDANCE[level] || LEVEL_GUIDANCE.B1;
+    const clientSeenIds = Array.isArray(seenIds)
+      ? seenIds.filter(x => typeof x === 'string' && x.length > 0).slice(-100)
+      : [];
 
-    // 1. Быстрый перевод слова или фразы в контексте
+    // 1. Быстрый перевод слова или фразы (сначала из кэша Supabase)
     if (action === 'translate') {
       const cleanWord = String(word || '').trim().slice(0, 200);
       const cleanCtx = String(context || '').trim().slice(0, 400);
       if (!cleanWord) {
         return res.status(400).json({ error: 'Не указано слово для перевода.' });
+      }
+
+      const wordKey = normalizeKey(cleanWord);
+      const cachedRows = await supabaseSelect(
+        'translations_cache',
+        `language=eq.${encodeURIComponent(langCode)}&word_key=eq.${encodeURIComponent(wordKey)}&select=translation,note&limit=1`
+      );
+      if (cachedRows.length > 0 && cachedRows[0].translation) {
+        return res.status(200).json({
+          translation: cachedRows[0].translation,
+          note: cachedRows[0].note || '',
+          fromCache: true
+        });
       }
 
       const trPrompt = `
@@ -388,7 +514,7 @@ ${lang.scriptHint || ''}
       const task = await runGeminiTask({
         apiKey,
         models: GEMINI_FAST_MODELS,
-        totalBudgetMs: 18000,
+        totalBudgetMs: 16000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: trPrompt }] }],
           generationConfig: {
@@ -416,12 +542,34 @@ ${lang.scriptHint || ''}
         return res.status(502).json({ error: 'Не удалось перевести слово. Введите перевод вручную.' });
       }
 
+      if (task.value.translation && cleanWord.length <= 60) {
+        await supabaseInsertIgnore('translations_cache', 'language,word_key', {
+          language: langCode,
+          word_key: wordKey,
+          translation: task.value.translation,
+          note: task.value.note || ''
+        });
+      }
+
       return res.status(200).json(task.value);
     }
 
-    // 2. Компактный и понятный урок и задания по грамматике
+    // 2. Урок и задания по грамматике (сначала из Supabase, новые сохраняются автоматически)
     if (action === 'grammar_lesson') {
       const targetTopic = String(grammarTopic || '').trim().slice(0, 140) || 'Базовая грамматика';
+      const topicKey = normalizeKey(targetTopic);
+
+      const cachedLessons = await supabaseSelect(
+        'grammar_lessons',
+        `language=eq.${encodeURIComponent(langCode)}&level=eq.${encodeURIComponent(level)}&topic_key=eq.${encodeURIComponent(topicKey)}&select=id,content&limit=1`
+      );
+      if (cachedLessons.length > 0 && cachedLessons[0].content) {
+        return res.status(200).json({
+          id: cachedLessons[0].id,
+          ...cachedLessons[0].content,
+          fromCache: true
+        });
+      }
 
       const grammarPrompt = `
 You are Echo, a clear, practical ${lang.enName} grammar tutor for Russian learners.
@@ -510,7 +658,7 @@ Create a concise, clear grammar lesson in Russian for level ${level}:
       const task = await runGeminiTask({
         apiKey,
         models: GEMINI_HEAVY_MODELS,
-        totalBudgetMs: 28000,
+        totalBudgetMs: 24000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: grammarPrompt }] }],
           generationConfig: {
@@ -577,7 +725,18 @@ Create a concise, clear grammar lesson in Russian for level ${level}:
         });
       }
 
-      return res.status(200).json(task.value);
+      const saved = await supabaseInsertIgnore('grammar_lessons', 'language,level,topic_key', {
+        language: langCode,
+        level,
+        topic_title: targetTopic,
+        topic_key: topicKey,
+        content: task.value
+      });
+
+      return res.status(200).json({
+        id: saved?.id || null,
+        ...task.value
+      });
     }
 
     // 3. Вопрос ИИ по текущей теме грамматики
@@ -603,7 +762,7 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
       const task = await runGeminiTask({
         apiKey,
         models: GEMINI_FAST_MODELS,
-        totalBudgetMs: 20000,
+        totalBudgetMs: 18000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: askPrompt }] }],
           generationConfig: {
@@ -638,9 +797,32 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
       return res.status(200).json(task.value);
     }
 
-    // 4. Генерация адаптированного текста для вкладки «Чтение»
+    // 4. Адаптированный текст для «Чтения» (выдача без повторов из Supabase + автопополнение)
     if (action === 'reading') {
+      const hasCustom = Boolean(String(customTopic || '').trim());
       const finalTopic = String(customTopic || '').trim().slice(0, 120) || topic;
+      const bucket = `reading:${langCode}:${level}:${normalizeKey(finalTopic)}`;
+
+      const dbTexts = await supabaseSelect(
+        'reading_texts',
+        `language=eq.${encodeURIComponent(langCode)}&level=eq.${encodeURIComponent(level)}&topic=eq.${encodeURIComponent(finalTopic)}&select=id,content&order=created_at.asc&limit=100`
+      );
+
+      const serverSeen = getSeenList(clientIp, bucket);
+      const seenSet = new Set([...serverSeen, ...clientSeenIds]);
+      const unseenTexts = dbTexts.filter(row => row.content && !seenSet.has(row.id));
+
+      if (unseenTexts.length > 0) {
+        const chosen = pickRandom(unseenTexts);
+        markSeenId(clientIp, bucket, chosen.id);
+        return res.status(200).json({
+          id: chosen.id,
+          ...chosen.content,
+          fromCache: true
+        });
+      }
+
+      // Все тексты в библиотеке прочитаны или тема новая — пробуем сгенерировать новый
       const styles = [
         'a short relatable story from everyday life',
         'an interesting mini-article with surprising facts',
@@ -648,10 +830,16 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
         'a light practical guide or life observation'
       ];
       const chosenStyle = pickRandom(styles);
+      const existingTitles = dbTexts
+        .map(r => r?.content?.titleTarget)
+        .filter(Boolean)
+        .slice(-8)
+        .join(', ');
 
       const readingPrompt = `
 Write ${chosenStyle} strictly in ${lang.enName}, adapted for a Russian learner at level: ${levelDesc}
 Topic: "${finalTopic}".
+${existingTitles ? `Do NOT repeat or closely copy these already existing titles/ideas: ${existingTitles}. Create a completely different angle.` : ''}
 ${lang.extraNote}
 
 Requirements:
@@ -685,11 +873,11 @@ Requirements:
       const task = await runGeminiTask({
         apiKey,
         models: GEMINI_HEAVY_MODELS,
-        totalBudgetMs: 28000,
+        totalBudgetMs: 24000,
         buildPayload: (thinkingConfig) => ({
           contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
           generationConfig: {
-            temperature: 0.75,
+            temperature: 0.8,
             maxOutputTokens: 2000,
             responseMimeType: 'application/json',
             responseSchema: readingSchema,
@@ -726,17 +914,93 @@ Requirements:
         }
       });
 
-      if (!task.ok) {
-        return res.status(502).json({
-          error: formatOverloadError('Не удалось создать текст.', task.errors)
+      if (task.ok) {
+        const firstLine = task.value.paragraphs?.[0]?.[0]?.target || '';
+        const contentKey = normalizeKey(`${task.value.titleTarget} ${firstLine}`);
+        const saved = await supabaseInsertIgnore('reading_texts', 'language,level,content_key', {
+          language: langCode,
+          level,
+          topic: finalTopic,
+          title_target: task.value.titleTarget,
+          content_key: contentKey,
+          content: task.value
+        });
+        if (saved?.id) markSeenId(clientIp, bucket, saved.id);
+        return res.status(200).json({
+          id: saved?.id || null,
+          ...task.value
         });
       }
 
-      return res.status(200).json(task.value);
+      // Мягкая страховка: если ИИ перегружен, но в базе уже есть тексты — начинаем новый круг без повтора последнего
+      if (dbTexts.length > 0) {
+        const lastId = serverSeen[serverSeen.length - 1];
+        const pool = dbTexts.length > 1 ? dbTexts.filter(r => r.id !== lastId) : dbTexts;
+        const chosen = pickRandom(pool);
+        resetSeenKeepLast(clientIp, bucket, chosen.id);
+        return res.status(200).json({
+          id: chosen.id,
+          ...chosen.content,
+          fromCache: true
+        });
+      }
+
+      // Если для выбранного уровня текстов нет, но это стандартная тема — подстрахуем текстом того же языка
+      if (!hasCustom) {
+        const anyLevelTexts = await supabaseSelect(
+          'reading_texts',
+          `language=eq.${encodeURIComponent(langCode)}&select=id,content&limit=30`
+        );
+        if (anyLevelTexts.length > 0) {
+          const chosen = pickRandom(anyLevelTexts);
+          return res.status(200).json({
+            id: chosen.id,
+            ...chosen.content,
+            fromCache: true
+          });
+        }
+      }
+
+      return res.status(502).json({
+        error: formatOverloadError('Не удалось создать текст.', task.errors)
+      });
     }
 
-    // 5. Разнообразный старт диалога
+    // 5. Разнообразный старт диалога (без повторов из Supabase + автопополнение)
     if (action === 'start') {
+      const bucket = `start:${langCode}:${level}:${normalizeKey(topic)}`;
+
+      let dbStarters = await supabaseSelect(
+        'dialog_starters',
+        `language=eq.${encodeURIComponent(langCode)}&level=eq.${encodeURIComponent(level)}&topic=eq.${encodeURIComponent(topic)}&select=id,reply_target,reply_ru&limit=100`
+      );
+
+      if (dbStarters.length === 0) {
+        dbStarters = await supabaseSelect(
+          'dialog_starters',
+          `language=eq.${encodeURIComponent(langCode)}&topic=eq.${encodeURIComponent(topic)}&select=id,reply_target,reply_ru&limit=100`
+        );
+      }
+
+      const serverSeen = getSeenList(clientIp, bucket);
+      const seenSet = new Set([...serverSeen, ...clientSeenIds]);
+      const unseenStarters = dbStarters.filter(r => r.reply_target && !seenSet.has(r.id));
+
+      if (unseenStarters.length > 0) {
+        const chosen = pickRandom(unseenStarters);
+        markSeenId(clientIp, bucket, chosen.id);
+        return res.status(200).json({
+          id: chosen.id,
+          userTranscript: '',
+          hasErrors: false,
+          correction: '',
+          explanationRu: '',
+          replyTarget: chosen.reply_target,
+          replyRu: chosen.reply_ru,
+          fromCache: true
+        });
+      }
+
       const seeds = SCENARIO_SEEDS[topic] || SCENARIO_SEEDS['Свободная тема'];
       const chosenSeed = pickRandom(seeds);
 
@@ -789,7 +1053,36 @@ No markdown or emojis.
       });
 
       if (task.ok) {
-        return res.status(200).json(task.value);
+        const saved = await supabaseInsertIgnore('dialog_starters', 'language,level,content_key', {
+          language: langCode,
+          level,
+          topic,
+          reply_target: task.value.replyTarget,
+          reply_ru: task.value.replyRu,
+          content_key: normalizeKey(task.value.replyTarget)
+        });
+        if (saved?.id) markSeenId(clientIp, bucket, saved.id);
+        return res.status(200).json({
+          id: saved?.id || null,
+          ...task.value
+        });
+      }
+
+      if (dbStarters.length > 0) {
+        const lastId = serverSeen[serverSeen.length - 1];
+        const pool = dbStarters.length > 1 ? dbStarters.filter(r => r.id !== lastId) : dbStarters;
+        const chosen = pickRandom(pool);
+        resetSeenKeepLast(clientIp, bucket, chosen.id);
+        return res.status(200).json({
+          id: chosen.id,
+          userTranscript: '',
+          hasErrors: false,
+          correction: '',
+          explanationRu: '',
+          replyTarget: chosen.reply_target,
+          replyRu: chosen.reply_ru,
+          fromCache: true
+        });
       }
 
       const list = FALLBACK_STARTERS_BY_LANG[langCode] || FALLBACK_STARTERS_BY_LANG.en;
@@ -859,7 +1152,7 @@ On every message:
     const task = await runGeminiTask({
       apiKey,
       models: GEMINI_HEAVY_MODELS,
-      totalBudgetMs: 28000,
+      totalBudgetMs: 26000,
       buildPayload: (thinkingConfig) => ({
         system_instruction: { parts: [{ text: systemInstruction }] },
         contents,
