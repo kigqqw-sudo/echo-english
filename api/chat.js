@@ -641,4 +641,267 @@ Also give one helpful example sentence in ${lang.enName} ("exampleTarget") and i
 
     // 4. Генерация адаптированного текста для вкладки «Чтение»
     if (action === 'reading') {
-      const finalTopic = String
+      const finalTopic = String(customTopic || '').trim().slice(0, 120) || topic;
+      const styles = [
+        'a short relatable story from everyday life',
+        'an interesting mini-article with surprising facts',
+        'a vivid diary entry about a memorable day',
+        'a light practical guide or life observation'
+      ];
+      const chosenStyle = pickRandom(styles);
+
+      const readingPrompt = `
+Write ${chosenStyle} strictly in ${lang.enName}, adapted for a Russian learner at level: ${levelDesc}
+Topic: "${finalTopic}".
+${lang.extraNote}
+
+Requirements:
+- Write 2 short paragraphs (total 5 to 7 natural sentences) strictly in ${lang.enName}.
+- Use vocabulary and grammar appropriate for ${level}, including useful everyday words worth learning.
+- For each sentence, include its paragraph number in "p" (1 or 2), the sentence in ${lang.enName} in "target", and an accurate, natural Russian translation in "ru".
+- No markdown, no emojis.
+`.trim();
+
+      const readingSchema = {
+        type: 'OBJECT',
+        properties: {
+          titleTarget: { type: 'STRING' },
+          titleRu: { type: 'STRING' },
+          sentences: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                p: { type: 'INTEGER' },
+                target: { type: 'STRING' },
+                ru: { type: 'STRING' }
+              },
+              required: ['p', 'target', 'ru']
+            }
+          }
+        },
+        required: ['titleTarget', 'titleRu', 'sentences']
+      };
+
+      const task = await runGeminiTask({
+        apiKey,
+        models: GEMINI_HEAVY_MODELS,
+        totalBudgetMs: 28000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: readingPrompt }] }],
+          generationConfig: {
+            temperature: 0.75,
+            maxOutputTokens: 2000,
+            responseMimeType: 'application/json',
+            responseSchema: readingSchema,
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => {
+          const rawSentences = Array.isArray(parsed.sentences) ? parsed.sentences : [];
+          const groupedMap = new Map();
+
+          for (const s of rawSentences) {
+            const txt = s && (s.target || s.en);
+            if (!txt || typeof txt !== 'string' || !txt.trim()) continue;
+            const pNum = Number.isFinite(Number(s.p)) ? Number(s.p) : 1;
+            if (!groupedMap.has(pNum)) groupedMap.set(pNum, []);
+            groupedMap.get(pNum).push({
+              target: txt.trim(),
+              ru: String(s.ru || '').trim()
+            });
+          }
+
+          const cleanParagraphs = Array.from(groupedMap.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([, list]) => list)
+            .filter(list => list.length > 0);
+
+          if (cleanParagraphs.length === 0) return null;
+
+          return {
+            titleTarget: String(parsed.titleTarget || parsed.titleEn || finalTopic).trim(),
+            titleRu: String(parsed.titleRu || '').trim(),
+            paragraphs: cleanParagraphs
+          };
+        }
+      });
+
+      if (!task.ok) {
+        return res.status(502).json({
+          error: formatOverloadError('Не удалось создать текст.', task.errors)
+        });
+      }
+
+      return res.status(200).json(task.value);
+    }
+
+    // 5. Разнообразный старт диалога
+    if (action === 'start') {
+      const seeds = SCENARIO_SEEDS[topic] || SCENARIO_SEEDS['Свободная тема'];
+      const chosenSeed = pickRandom(seeds);
+
+      const startPrompt = `
+You are Echo, a friendly spoken ${lang.enName} tutor.
+Target language: ${lang.enName}.
+Student level: ${levelDesc}
+Topic: "${topic}"
+Opening scenario: ${chosenSeed}
+${lang.extraNote}
+
+Write a fresh, natural opening message STRICTLY in ${lang.enName} ("replyTarget", 1-2 short sentences ending with an engaging question) and its natural Russian translation ("replyRu").
+Avoid cliché textbook openings — jump right into the vibe of the scenario!
+No markdown or emojis.
+`.trim();
+
+      const task = await runGeminiTask({
+        apiKey,
+        models: GEMINI_FAST_MODELS,
+        totalBudgetMs: 14000,
+        buildPayload: (thinkingConfig) => ({
+          contents: [{ role: 'user', parts: [{ text: startPrompt }] }],
+          generationConfig: {
+            temperature: 1.0,
+            maxOutputTokens: 320,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                replyTarget: { type: 'STRING' },
+                replyRu: { type: 'STRING' }
+              },
+              required: ['replyTarget', 'replyRu']
+            },
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
+        }),
+        parseResult: (parsed) => {
+          const reply = parsed.replyTarget || parsed.replyEn;
+          if (!reply) return null;
+          return {
+            userTranscript: '',
+            hasErrors: false,
+            correction: '',
+            explanationRu: '',
+            replyTarget: String(reply).trim(),
+            replyRu: String(parsed.replyRu || '').trim()
+          };
+        }
+      });
+
+      if (task.ok) {
+        return res.status(200).json(task.value);
+      }
+
+      const list = FALLBACK_STARTERS_BY_LANG[langCode] || FALLBACK_STARTERS_BY_LANG.en;
+      const fallback = pickRandom(list);
+      return res.status(200).json({
+        userTranscript: '',
+        hasErrors: false,
+        correction: '',
+        explanationRu: '',
+        replyTarget: fallback.target,
+        replyRu: fallback.ru
+      });
+    }
+
+    // 6. Основной диалог (голос или текст)
+    if (audioBase64 && audioBase64.length > MAX_AUDIO_BASE64_LENGTH) {
+      return res.status(413).json({ error: 'Аудио слишком большое. Попробуйте записать сообщение короче 45 секунд.' });
+    }
+
+    if (!audioBase64 && !String(text).trim()) {
+      return res.status(400).json({ error: 'Пустое сообщение.' });
+    }
+
+    const systemInstruction = `
+You are Echo, a friendly spoken ${lang.enName} tutor for Russian-speaking learners.
+Target language: ${lang.enName}.
+Student level: ${levelDesc}
+Topic: "${topic}".
+${lang.extraNote}
+
+On every message:
+1. Transcribe accurately what the student said in ${lang.enName} in "userTranscript".
+2. If there are grammar, word choice, or phrasing mistakes, set "hasErrors": true, give a natural corrected version in ${lang.enName} in "correction", and explain briefly in Russian (1-2 sentences) in "explanationRu". Otherwise set "hasErrors": false, "correction": "", and write short praise in Russian in "explanationRu".
+3. Reply naturally STRICTLY in ${lang.enName} in "replyTarget" (1-2 short sentences + a light follow-up question, no markdown or emojis) and translate it into Russian in "replyRu".
+`.trim();
+
+    const contents = [];
+    const safeHistory = Array.isArray(history) ? history.slice(-10) : [];
+
+    if (safeHistory.length > 0 && safeHistory[0].role === 'model') {
+      contents.push({
+        role: 'user',
+        parts: [{ text: `Let's practice ${lang.enName} on the topic "${topic}".` }]
+      });
+    }
+
+    for (const item of safeHistory) {
+      if ((item.role === 'user' || item.role === 'model') && typeof item.text === 'string' && item.text.trim()) {
+        contents.push({
+          role: item.role,
+          parts: [{ text: item.text.slice(0, 800) }]
+        });
+      }
+    }
+
+    const userParts = [];
+    if (audioBase64) {
+      const cleanMime = String(mimeType).split(';')[0].trim() || 'audio/webm';
+      userParts.push({ text: `Listen to the student audio in ${lang.enName}, transcribe it, check for mistakes, and respond.` });
+      userParts.push({ inline_data: { mime_type: cleanMime, data: audioBase64 } });
+    } else {
+      userParts.push({ text: `Student message in ${lang.enName}: "${String(text).trim().slice(0, 800)}". Check for mistakes and respond.` });
+    }
+
+    contents.push({ role: 'user', parts: userParts });
+
+    const task = await runGeminiTask({
+      apiKey,
+      models: GEMINI_HEAVY_MODELS,
+      totalBudgetMs: 28000,
+      buildPayload: (thinkingConfig) => ({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 750,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              userTranscript: { type: 'STRING' },
+              hasErrors: { type: 'BOOLEAN' },
+              correction: { type: 'STRING' },
+              explanationRu: { type: 'STRING' },
+              replyTarget: { type: 'STRING' },
+              replyRu: { type: 'STRING' }
+            },
+            required: ['userTranscript', 'hasErrors', 'correction', 'explanationRu', 'replyTarget', 'replyRu']
+          },
+          ...(thinkingConfig ? { thinkingConfig } : {})
+        }
+      }),
+      parseResult: (parsed) => ({
+        userTranscript: String(parsed.userTranscript || text || '').trim(),
+        hasErrors: Boolean(parsed.hasErrors),
+        correction: String(parsed.correction || '').trim(),
+        explanationRu: String(parsed.explanationRu || '').trim(),
+        replyTarget: String(parsed.replyTarget || parsed.replyEn || '...').trim(),
+        replyRu: String(parsed.replyRu || '').trim()
+      })
+    });
+
+    if (!task.ok) {
+      return res.status(502).json({
+        error: formatOverloadError('Не удалось получить ответ от ИИ.', task.errors)
+      });
+    }
+
+    return res.status(200).json(task.value);
+  } catch (err) {
+    console.error('Chat API error:', err);
+    return res.status(500).json({ error: 'Ошибка сервера: ' + (err?.message || 'попробуйте ещё раз.') });
+  }
+}
