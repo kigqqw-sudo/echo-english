@@ -75,6 +75,10 @@ const toastEl = document.getElementById('toast');
 const MAX_SECONDS = 45;
 const THEME_STORAGE_KEY = 'echo_theme_v1';
 const LANG_STORAGE_KEY = 'echo_lang_v1';
+const SEEN_STORAGE_KEY = 'echo_seen_ids_v1';
+const GRAMMAR_DONE_KEY = 'echo_grammar_done_v1';
+const STATS_STORAGE_KEY = 'echo_stats_v1';
+const MAX_SEEN_PER_BUCKET = 50;
 
 let currentLangCode = loadSavedLang();
 let currentMode = 'chat';
@@ -116,6 +120,104 @@ let fcTotal = 0;
 let fcKnown = 0;
 let fcFlipped = false;
 let fcDirection = 'target-ru';
+
+// --- Память просмотренных материалов (seenIds) ---
+function loadSeenMap() {
+  try {
+    const raw = localStorage.getItem(SEEN_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function getSeenIds(bucket) {
+  const map = loadSeenMap();
+  return Array.isArray(map[bucket]) ? map[bucket] : [];
+}
+
+function rememberSeenId(bucket, id) {
+  if (id === undefined || id === null || id === '') return;
+  const cleanId = String(id);
+  const map = loadSeenMap();
+  const list = Array.isArray(map[bucket]) ? map[bucket].filter(x => String(x) !== cleanId) : [];
+  list.push(cleanId);
+  map[bucket] = list.slice(-MAX_SEEN_PER_BUCKET);
+  try {
+    localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(map));
+  } catch (_) {}
+}
+
+// --- Прогресс по грамматике и базовая геймификация (XP + стрик) ---
+function loadGrammarDoneMap() {
+  try {
+    const raw = localStorage.getItem(GRAMMAR_DONE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function getGrammarDoneKey(langCode, level, topic) {
+  return `${langCode}::${level}::${String(topic || '').trim().toLowerCase()}`;
+}
+
+function isGrammarTopicDone(langCode, level, topic) {
+  const map = loadGrammarDoneMap();
+  return Boolean(map[getGrammarDoneKey(langCode, level, topic)]);
+}
+
+function markGrammarTopicDone(langCode, level, topic) {
+  const map = loadGrammarDoneMap();
+  map[getGrammarDoneKey(langCode, level, topic)] = Date.now();
+  try {
+    localStorage.setItem(GRAMMAR_DONE_KEY, JSON.stringify(map));
+  } catch (_) {}
+}
+
+function getTodayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getYesterdayKey() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function awardXp(amount, notify = false) {
+  if (!amount || amount <= 0) return null;
+  let stats = { xp: 0, streak: 0, lastDate: '' };
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (raw) stats = { ...stats, ...JSON.parse(raw) };
+  } catch (_) {}
+
+  const today = getTodayKey();
+  if (stats.lastDate !== today) {
+    stats.streak = stats.lastDate === getYesterdayKey() ? (stats.streak || 0) + 1 : 1;
+    stats.lastDate = today;
+  }
+  stats.xp = (stats.xp || 0) + amount;
+
+  try {
+    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+  } catch (_) {}
+
+  if (notify) {
+    showToast(`+${amount} XP · Серия: ${stats.streak} дн. · Всего: ${stats.xp} XP`);
+  }
+  return stats;
+}
 
 // --- Языковые хелперы ---
 function loadSavedLang() {
@@ -350,15 +452,17 @@ function renderGrammarTopicChips() {
   const lvl = levelSelect.value;
   const langTopics = GRAMMAR_TOPICS_BY_LANG[lang.code] || GRAMMAR_TOPICS_BY_LANG.en;
   const topics = langTopics[lvl] || langTopics.B1;
+  const doneCount = topics.filter(t => isGrammarTopicDone(lang.code, lvl, t)).length;
 
-  grammarTopicsLabel.textContent = `${lang.nameRu} · грамматика уровня ${lvl}`;
+  grammarTopicsLabel.textContent = `${lang.nameRu} · грамматика уровня ${lvl} · пройдено ${doneCount} из ${topics.length}`;
   grammarTopicsChips.innerHTML = '';
 
   topics.forEach(t => {
+    const done = isGrammarTopicDone(lang.code, lvl, t);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'g-topic-chip' + (activeGrammarTopic === t ? ' selected' : '');
-    btn.textContent = t;
+    btn.textContent = done ? `✓ ${t}` : t;
     btn.addEventListener('click', () => {
       grammarCustomInput.value = '';
       loadGrammarLesson(t);
@@ -371,7 +475,7 @@ function renderGrammarTopicChips() {
       <div class="card" style="text-align:center; padding:28px 20px;">
         <div style="font-size:15px; font-weight:600;">Выберите тему выше или впишите свою</div>
         <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
-          Echo подробно разберёт правило (${escapeHtml(lang.nameRu.toLowerCase())}, уровень <strong>${escapeHtml(lvl)}</strong>) с формулами, примерами и частыми ошибками, а затем даст 5 заданий с проверкой.
+          Echo подробно разберёт правило (${escapeHtml(lang.nameRu.toLowerCase())}, уровень <strong>${escapeHtml(lvl)}</strong>) с формулами, примерами и частыми ошибками, а затем даст 4 задания с проверкой.
         </div>
       </div>
     `;
@@ -638,23 +742,32 @@ function renderGrammarExerciseInto(container) {
 
   if (grammarIndex >= total) {
     const pct = total > 0 ? Math.round((grammarScore / total) * 100) : 0;
+    if (pct >= 50 && activeGrammarTopic) {
+      markGrammarTopicDone(currentLangCode, levelSelect.value, activeGrammarTopic);
+      renderGrammarTopicChips();
+      awardXp(20, true);
+    }
+
     const msg = pct === 100
       ? 'Безупречно! Тема отлично усвоена.'
-      : pct >= 60
-        ? 'Хороший результат! Можно закрепить ещё одним набором.'
-        : 'Неплохое начало — попробуйте пройти ещё 5 заданий, подглядывая в правило.';
+      : pct >= 50
+        ? 'Хороший результат! Тема отмечена как пройденная.'
+        : 'Неплохое начало — попробуйте пройти задания ещё раз, подглядывая в правило.';
 
     container.innerHTML = `
       <div style="text-align:center; padding:12px 6px; display:flex; flex-direction:column; gap:10px; align-items:center;">
         <div style="font-size:28px; font-weight:800;">${grammarScore} / ${total}</div>
         <div style="font-size:14px; color:var(--text-secondary); max-width:380px; line-height:1.5;">${msg}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
-          <button type="button" id="gMoreBtn" class="primary-btn">Ещё 5 заданий по этой теме</button>
+          <button type="button" id="gMoreBtn" class="primary-btn">Пройти задания ещё раз</button>
         </div>
       </div>
     `;
     container.querySelector('#gMoreBtn').addEventListener('click', () => {
-      loadGrammarLesson(activeGrammarTopic);
+      grammarIndex = 0;
+      grammarScore = 0;
+      grammarAnswered = false;
+      renderGrammarExerciseInto(container);
     });
     return;
   }
@@ -789,6 +902,9 @@ async function generateReadingText() {
   genReadingBtn.textContent = 'Создаём...';
 
   const lang = getCurrentLang();
+  const customTopic = customTopicInput.value.trim();
+  const seenBucket = `reading::${currentLangCode}::${levelSelect.value}::${customTopic || topicSelect.value}`;
+
   readingContent.innerHTML = `<div class="status-note" style="margin: 24px auto; width: fit-content;">Echo пишет текст ${escapeHtml(lang.nameRuPrep)} (${escapeHtml(levelSelect.value)})...</div>`;
 
   try {
@@ -800,7 +916,8 @@ async function generateReadingText() {
         language: currentLangCode,
         level: levelSelect.value,
         topic: topicSelect.value,
-        customTopic: customTopicInput.value.trim()
+        customTopic,
+        seenIds: getSeenIds(seenBucket)
       })
     });
 
@@ -813,6 +930,10 @@ async function generateReadingText() {
       readingContent.innerHTML = `<div class="error-banner">${escapeHtml(data.error || 'Не удалось создать текст.')}</div>`;
       return;
     }
+
+    const itemId = data.id || data.readingId || data.cacheId;
+    if (itemId) rememberSeenId(seenBucket, itemId);
+    awardXp(10, false);
 
     renderReadingArticle(data);
   } catch (_) {
@@ -1116,6 +1237,7 @@ function startFlashcardsSession() {
 
 function renderFlashcard() {
   if (fcQueue.length === 0) {
+    awardXp(15, true);
     cardsView.innerHTML = `
       <div class="empty-state">
         <div style="font-size:28px; margin-bottom:8px;">✓</div>
@@ -1527,6 +1649,7 @@ async function startConversation() {
   history = [];
   chatEl.innerHTML = '';
   const lang = getCurrentLang();
+  const seenBucket = `start::${currentLangCode}::${levelSelect.value}::${topicSelect.value}`;
   setBusy(true, `Echo готовит диалог (${lang.nameRu.toLowerCase()})...`);
 
   try {
@@ -1537,7 +1660,8 @@ async function startConversation() {
         action: 'start',
         language: currentLangCode,
         level: levelSelect.value,
-        topic: topicSelect.value
+        topic: topicSelect.value,
+        seenIds: getSeenIds(seenBucket)
       })
     });
 
@@ -1548,6 +1672,9 @@ async function startConversation() {
       showError(data.error || 'Не удалось начать диалог.');
       return;
     }
+
+    const itemId = data.id || data.startId || data.cacheId;
+    if (itemId) rememberSeenId(seenBucket, itemId);
 
     const replyTxt = data.replyTarget || data.replyEn || '';
     history.push({ role: 'model', text: replyTxt });
@@ -1598,6 +1725,8 @@ async function sendUserMessage({ audioBlob = null, mimeType = '', text = '' }) {
     const replyTxt = data.replyTarget || data.replyEn || '';
     transcriptEl.textContent = finalTranscript;
     appendFeedback(group, data);
+
+    awardXp(5, false);
 
     history.push({ role: 'user', text: finalTranscript });
     history.push({ role: 'model', text: replyTxt });
