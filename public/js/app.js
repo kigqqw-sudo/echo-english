@@ -1,6 +1,20 @@
 import { LANGUAGES, LEVELS, CHAT_TOPICS, GRAMMAR_TOPICS_BY_LANG } from './data.js';
 
-// --- DOM-элементы ---
+// --- DOM-элементы стартовой страницы и переключения ---
+const landingView = document.getElementById('landingView');
+const appShell = document.getElementById('appShell');
+const landingThemeBtn = document.getElementById('landingThemeBtn');
+const landingOpenAppBtn = document.getElementById('landingOpenAppBtn');
+const landingResumeBar = document.getElementById('landingResumeBar');
+const landingStartBtn = document.getElementById('landingStartBtn');
+const landingGrammarBtn = document.getElementById('landingGrammarBtn');
+const landingLangGrid = document.getElementById('landingLangGrid');
+const landingLevelPills = document.getElementById('landingLevelPills');
+const brandHomeBtn = document.getElementById('brandHomeBtn');
+const statsPill = document.getElementById('statsPill');
+const grammarLevelBarFill = document.getElementById('grammarLevelBarFill');
+
+// --- DOM-элементы рабочего приложения ---
 const langSelect = document.getElementById('langSelect');
 const levelSelect = document.getElementById('levelSelect');
 const topicSelect = document.getElementById('topicSelect');
@@ -75,13 +89,17 @@ const toastEl = document.getElementById('toast');
 const MAX_SECONDS = 45;
 const THEME_STORAGE_KEY = 'echo_theme_v1';
 const LANG_STORAGE_KEY = 'echo_lang_v1';
+const LEVEL_STORAGE_KEY = 'echo_level_v1';
 const SEEN_STORAGE_KEY = 'echo_seen_ids_v1';
 const GRAMMAR_DONE_KEY = 'echo_grammar_done_v1';
 const STATS_STORAGE_KEY = 'echo_stats_v1';
 const MAX_SEEN_PER_BUCKET = 50;
 
 let currentLangCode = loadSavedLang();
+let currentLevel = loadSavedLevel();
 let currentMode = 'chat';
+let isAppOpen = false;
+let chatStartedOnce = false;
 let vocabTab = 'notes';
 
 let readingLoadedOnce = false;
@@ -149,7 +167,7 @@ function rememberSeenId(bucket, id) {
   } catch (_) {}
 }
 
-// --- Прогресс по грамматике и базовая геймификация (XP + стрик) ---
+// --- Прогресс по грамматике и геймификация (XP + стрик) ---
 function loadGrammarDoneMap() {
   try {
     const raw = localStorage.getItem(GRAMMAR_DONE_KEY);
@@ -194,6 +212,30 @@ function getYesterdayKey() {
   return `${y}-${m}-${day}`;
 }
 
+function loadStats() {
+  let stats = { xp: 0, streak: 0, lastDate: '' };
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (raw) stats = { ...stats, ...JSON.parse(raw) };
+  } catch (_) {}
+  const today = getTodayKey();
+  const yesterday = getYesterdayKey();
+  const activeStreak = (stats.lastDate === today || stats.lastDate === yesterday) ? (stats.streak || 0) : 0;
+  return { xp: stats.xp || 0, streak: activeStreak, lastDate: stats.lastDate || '' };
+}
+
+function renderStatsUI() {
+  const stats = loadStats();
+  if (statsPill) {
+    statsPill.innerHTML = `
+      <span class="stats-streak">✦ ${stats.streak} дн.</span>
+      <span class="stats-sep">·</span>
+      <span class="stats-xp">${stats.xp} XP</span>
+    `;
+  }
+  renderLandingResume();
+}
+
 function awardXp(amount, notify = false) {
   if (!amount || amount <= 0) return null;
   let stats = { xp: 0, streak: 0, lastDate: '' };
@@ -213,6 +255,8 @@ function awardXp(amount, notify = false) {
     localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
   } catch (_) {}
 
+  renderStatsUI();
+
   if (notify) {
     showToast(`+${amount} XP · Серия: ${stats.streak} дн. · Всего: ${stats.xp} XP`);
   }
@@ -228,12 +272,19 @@ function loadSavedLang() {
   return 'en';
 }
 
+function loadSavedLevel() {
+  try {
+    const saved = localStorage.getItem(LEVEL_STORAGE_KEY);
+    if (saved && LEVELS.some(l => l.value === saved)) return saved;
+  } catch (_) {}
+  return 'B1';
+}
+
 function getCurrentLang() {
   return LANGUAGES.find(l => l.code === currentLangCode) || LANGUAGES[0];
 }
 
 function getVocabStorageKey(code = currentLangCode) {
-  // Для английского оставляем старый ключ, чтобы сохранились все прежние заметки
   return code === 'en' ? 'echo_vocab_v1' : `echo_vocab_v1_${code}`;
 }
 
@@ -247,6 +298,108 @@ function updateLanguageLabels() {
   }
 }
 
+// --- Стартовая страница и переключение в приложение ---
+function renderLandingResume() {
+  if (!landingResumeBar) return;
+  const stats = loadStats();
+  const doneTotal = Object.keys(loadGrammarDoneMap()).length;
+  const lang = getCurrentLang();
+
+  if (stats.xp > 0 || doneTotal > 0 || vocab.length > 0) {
+    landingResumeBar.classList.remove('is-hidden');
+    landingResumeBar.innerHTML = `
+      <span class="resume-pill-warm">✦ Серия: ${stats.streak} дн. · ${stats.xp} XP</span>
+      <span>·</span>
+      <span>Выбрано: <strong>${escapeHtml(lang.nameRu)} (${escapeHtml(currentLevel)})</strong></span>
+      ${doneTotal > 0 ? `<span>· Пройдено тем: <strong>${doneTotal}</strong></span>` : ''}
+    `;
+    if (landingStartBtn) landingStartBtn.textContent = `Продолжить (${lang.short} · ${currentLevel}) →`;
+  } else {
+    landingResumeBar.classList.add('is-hidden');
+    if (landingStartBtn) landingStartBtn.textContent = `Начать (${lang.short} · ${currentLevel}) →`;
+  }
+}
+
+function renderLandingControls() {
+  if (landingLevelPills) {
+    landingLevelPills.innerHTML = '';
+    LEVELS.forEach(lvl => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'level-pill' + (currentLevel === lvl.value ? ' active' : '');
+      btn.textContent = lvl.value;
+      btn.title = lvl.label;
+      btn.addEventListener('click', () => {
+        currentLevel = lvl.value;
+        levelSelect.value = currentLevel;
+        try { localStorage.setItem(LEVEL_STORAGE_KEY, currentLevel); } catch (_) {}
+        renderLandingControls();
+        renderLandingResume();
+      });
+      landingLevelPills.appendChild(btn);
+    });
+  }
+
+  if (landingLangGrid) {
+    landingLangGrid.innerHTML = '';
+    LANGUAGES.forEach(lang => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'lang-card' + (currentLangCode === lang.code ? ' selected' : '');
+      card.innerHTML = `
+        <div class="lang-card-top">
+          <span class="lang-code">${escapeHtml(lang.short)}</span>
+        </div>
+        <div class="lang-native">${escapeHtml(lang.nativeName)}</div>
+        <div class="lang-ru">${escapeHtml(lang.nameRu)}</div>
+      `;
+      card.addEventListener('click', () => {
+        if (currentLangCode !== lang.code) {
+          applyLanguageSelection(lang.code);
+        }
+        renderLandingControls();
+        renderLandingResume();
+      });
+      landingLangGrid.appendChild(card);
+    });
+  }
+}
+
+function openApp(targetMode = 'chat') {
+  isAppOpen = true;
+  document.body.classList.remove('mode-landing');
+  document.body.classList.add('mode-app');
+  landingView.classList.add('is-hidden');
+  appShell.classList.remove('is-hidden');
+  window.scrollTo(0, 0);
+
+  levelSelect.value = currentLevel;
+  langSelect.value = currentLangCode;
+  switchMode(targetMode, true);
+}
+
+function openLanding() {
+  stopSpeech();
+  if (isRecording) stopRecording(true);
+  isAppOpen = false;
+  document.body.classList.remove('mode-app');
+  document.body.classList.add('mode-landing');
+  appShell.classList.add('is-hidden');
+  landingView.classList.remove('is-hidden');
+  renderLandingControls();
+  renderLandingResume();
+  window.scrollTo(0, 0);
+}
+
+if (landingOpenAppBtn) landingOpenAppBtn.addEventListener('click', () => openApp('chat'));
+if (landingStartBtn) landingStartBtn.addEventListener('click', () => openApp('chat'));
+if (landingGrammarBtn) landingGrammarBtn.addEventListener('click', () => openApp('grammar'));
+if (brandHomeBtn) brandHomeBtn.addEventListener('click', openLanding);
+
+document.querySelectorAll('[data-enter-mode]').forEach(btn => {
+  btn.addEventListener('click', () => openApp(btn.dataset.enterMode || 'chat'));
+});
+
 // --- Тема (светлая / тёмная) ---
 function moonSvg() {
   return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
@@ -259,17 +412,25 @@ function sunSvg() {
 function applyTheme(theme) {
   const isDark = theme === 'dark';
   document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
-  themeBtn.innerHTML = isDark ? sunSvg() : moonSvg();
-  themeBtn.title = isDark ? 'Светлая тема' : 'Тёмная тема';
+  const icon = isDark ? sunSvg() : moonSvg();
+  const label = isDark ? 'Светлая тема' : 'Тёмная тема';
+  [themeBtn, landingThemeBtn].forEach(btn => {
+    if (!btn) return;
+    btn.innerHTML = icon;
+    btn.title = label;
+  });
   try {
     localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light');
   } catch (_) {}
 }
 
-themeBtn.addEventListener('click', () => {
+function toggleTheme() {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
   applyTheme(next);
-});
+}
+
+themeBtn.addEventListener('click', toggleTheme);
+if (landingThemeBtn) landingThemeBtn.addEventListener('click', toggleTheme);
 
 // --- Инициализация списков в шапке ---
 function initSelects() {
@@ -281,7 +442,7 @@ function initSelects() {
   levelSelect.innerHTML = LEVELS
     .map(l => `<option value="${escapeHtml(l.value)}">${escapeHtml(l.label)}</option>`)
     .join('');
-  levelSelect.value = 'B1';
+  levelSelect.value = currentLevel;
 
   topicSelect.innerHTML = CHAT_TOPICS
     .map(t => `<option value="${escapeHtml(t.value)}">${escapeHtml(t.label)}</option>`)
@@ -294,7 +455,6 @@ function loadVocab() {
     const raw = localStorage.getItem(getVocabStorageKey());
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
-    // Поддержка старых записей, где поле называлось en
     return parsed.map(item => ({
       id: item.id || (Date.now() + Math.random().toString(16).slice(2, 6)),
       target: String(item.target || item.en || '').trim(),
@@ -370,11 +530,9 @@ function deleteVocabEntry(id) {
 }
 
 // --- Смена языка ---
-function handleLanguageChange(newCode) {
-  stopSpeech();
-  if (isRecording) stopRecording(true);
-
+function applyLanguageSelection(newCode) {
   currentLangCode = newCode;
+  langSelect.value = newCode;
   try {
     localStorage.setItem(LANG_STORAGE_KEY, newCode);
   } catch (_) {}
@@ -383,15 +541,24 @@ function handleLanguageChange(newCode) {
   updateVocabBadge();
   updateLanguageLabels();
 
+  chatStartedOnce = false;
   readingLoadedOnce = false;
   readingContent.innerHTML = '';
   activeGrammarTopic = '';
   grammarLesson = null;
   customTopicInput.value = '';
   grammarCustomInput.value = '';
+}
+
+function handleLanguageChange(newCode) {
+  stopSpeech();
+  if (isRecording) stopRecording(true);
+  applyLanguageSelection(newCode);
 
   const lang = getCurrentLang();
   showToast(`Язык: ${lang.nameRu}`);
+
+  if (!isAppOpen) return;
 
   if (currentMode === 'chat') {
     startConversation();
@@ -409,8 +576,8 @@ langSelect.addEventListener('change', () => {
 });
 
 // --- Навигация между вкладками ---
-function switchMode(mode) {
-  if (currentMode === mode) return;
+function switchMode(mode, force = false) {
+  if (!force && currentMode === mode) return;
   stopSpeech();
   if (isRecording) stopRecording(true);
 
@@ -430,6 +597,9 @@ function switchMode(mode) {
   autoPlayBtn.classList.toggle('is-hidden', mode !== 'chat');
   restartBtn.classList.toggle('is-hidden', mode === 'vocab');
 
+  if (mode === 'chat' && !chatStartedOnce) {
+    startConversation();
+  }
   if (mode === 'reading' && !readingLoadedOnce) {
     generateReadingText();
   }
@@ -453,15 +623,20 @@ function renderGrammarTopicChips() {
   const langTopics = GRAMMAR_TOPICS_BY_LANG[lang.code] || GRAMMAR_TOPICS_BY_LANG.en;
   const topics = langTopics[lvl] || langTopics.B1;
   const doneCount = topics.filter(t => isGrammarTopicDone(lang.code, lvl, t)).length;
+  const pct = topics.length > 0 ? Math.round((doneCount / topics.length) * 100) : 0;
 
   grammarTopicsLabel.textContent = `${lang.nameRu} · грамматика уровня ${lvl} · пройдено ${doneCount} из ${topics.length}`;
+  if (grammarLevelBarFill) {
+    grammarLevelBarFill.style.width = `${pct}%`;
+  }
+
   grammarTopicsChips.innerHTML = '';
 
   topics.forEach(t => {
     const done = isGrammarTopicDone(lang.code, lvl, t);
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'g-topic-chip' + (activeGrammarTopic === t ? ' selected' : '');
+    btn.className = 'g-topic-chip' + (done ? ' done' : '') + (activeGrammarTopic === t ? ' selected' : '');
     btn.textContent = done ? `✓ ${t}` : t;
     btn.addEventListener('click', () => {
       grammarCustomInput.value = '';
@@ -472,9 +647,9 @@ function renderGrammarTopicChips() {
 
   if (!grammarLesson && !isGrammarBusy) {
     grammarContent.innerHTML = `
-      <div class="card" style="text-align:center; padding:28px 20px;">
-        <div style="font-size:15px; font-weight:600;">Выберите тему выше или впишите свою</div>
-        <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
+      <div class="card" style="text-align:center; padding:30px 22px;">
+        <div style="font-family:var(--font-serif); font-size:18px; font-weight:600;">Выберите тему выше или впишите свою</div>
+        <div style="font-size:13.5px; color:var(--text-secondary); line-height:1.6;">
           Echo подробно разберёт правило (${escapeHtml(lang.nameRu.toLowerCase())}, уровень <strong>${escapeHtml(lvl)}</strong>) с формулами, примерами и частыми ошибками, а затем даст 4 задания с проверкой.
         </div>
       </div>
@@ -662,7 +837,7 @@ function renderGrammarWorkspace() {
   const askCard = document.createElement('div');
   askCard.className = 'card';
   askCard.innerHTML = `
-    <div style="font-size:14px; font-weight:700;">Остались вопросы по этой теме?</div>
+    <div style="font-family:var(--font-serif); font-size:16px; font-weight:600;">Остались вопросы по этой теме?</div>
     <form id="grammarAskForm" class="action-bar">
       <input id="grammarAskInput" class="field-input" type="text" placeholder="Задайте любой вопрос по правилу..." required />
       <button id="grammarAskBtn" type="submit" class="primary-btn">Спросить</button>
@@ -756,8 +931,8 @@ function renderGrammarExerciseInto(container) {
 
     container.innerHTML = `
       <div style="text-align:center; padding:12px 6px; display:flex; flex-direction:column; gap:10px; align-items:center;">
-        <div style="font-size:28px; font-weight:800;">${grammarScore} / ${total}</div>
-        <div style="font-size:14px; color:var(--text-secondary); max-width:380px; line-height:1.5;">${msg}</div>
+        <div style="font-family:var(--font-serif); font-size:32px; font-weight:700; color:var(--accent);">${grammarScore} / ${total}</div>
+        <div style="font-size:14px; color:var(--text-secondary); max-width:380px; line-height:1.55;">${msg}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
           <button type="button" id="gMoreBtn" class="primary-btn">Пройти задания ещё раз</button>
         </div>
@@ -1240,7 +1415,7 @@ function renderFlashcard() {
     awardXp(15, true);
     cardsView.innerHTML = `
       <div class="empty-state">
-        <div style="font-size:28px; margin-bottom:8px;">✓</div>
+        <div style="font-size:28px; margin-bottom:8px; color:var(--accent);">✓</div>
         <strong>Все карточки пройдены!</strong><br>
         Вы повторили ${fcTotal} ${pluralWords(fcTotal)}.
         <div style="margin-top:16px;">
@@ -1427,7 +1602,7 @@ function primeSpeech() {
   }
 }
 
-// --- Вспомогательные функции (поддержка всех алфавитов) ---
+// --- Вспомогательные функции ---
 function escapeHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')
@@ -1440,7 +1615,6 @@ function renderClickableText(text) {
   const str = String(text || '');
   const lang = getCurrentLang();
 
-  // Для китайского и японского разбиваем текст через встроенный Intl.Segmenter
   if (lang.useSegmenter && typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
     try {
       const segmenter = new Intl.Segmenter(lang.code, { granularity: 'word' });
@@ -1458,7 +1632,6 @@ function renderClickableText(text) {
     } catch (_) {}
   }
 
-  // Для европейских языков (включая французские акценты/апострофы) и корейского
   const regex = /[\p{L}\p{M}]+(?:['’-][\p{L}\p{M}]+)*/gu;
   let out = '';
   let lastIndex = 0;
@@ -1580,7 +1753,7 @@ function renderAiMessage(replyTarget, replyRu) {
   chatEl.appendChild(group);
   scrollToBottom();
 
-  if (autoPlay && currentMode === 'chat') {
+  if (autoPlay && isAppOpen && currentMode === 'chat') {
     speakText(replyTarget, currentRate, voiceBar);
   }
 }
@@ -1646,6 +1819,7 @@ function appendFeedback(userGroup, data) {
 // --- Запросы к серверу для диалога ---
 async function startConversation() {
   stopSpeech();
+  chatStartedOnce = true;
   history = [];
   chatEl.innerHTML = '';
   const lang = getCurrentLang();
@@ -1938,6 +2112,11 @@ restartBtn.addEventListener('click', () => {
 });
 
 levelSelect.addEventListener('change', () => {
+  currentLevel = levelSelect.value;
+  try { localStorage.setItem(LEVEL_STORAGE_KEY, currentLevel); } catch (_) {}
+
+  if (!isAppOpen) return;
+
   if (currentMode === 'reading') {
     generateReadingText();
   } else if (currentMode === 'grammar') {
@@ -1950,6 +2129,7 @@ levelSelect.addEventListener('change', () => {
 });
 
 topicSelect.addEventListener('change', () => {
+  if (!isAppOpen) return;
   if (currentMode === 'reading') {
     customTopicInput.value = '';
     generateReadingText();
@@ -1969,5 +2149,6 @@ initSelects();
 vocab = loadVocab();
 updateVocabBadge();
 updateLanguageLabels();
+renderStatsUI();
+renderLandingControls();
 renderGrammarTopicChips();
-startConversation();
