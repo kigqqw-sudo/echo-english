@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
   <title>Echo — Платформа для изучения языков с ИИ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet" />
   <script>
     try {
       if (localStorage.getItem('echo_theme_v1') === 'dark') {
@@ -13,13 +16,110 @@
   </script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
-  <div class="app">
-    <header class="header">
-      <div class="brand">
-        <span class="brand-dot"></span>
-        Echo
+<body class="mode-landing">
+
+  <!-- ================= СТАРТОВАЯ СТРАНИЦА ================= -->
+  <div id="landingView" class="landing">
+    <header class="landing-nav">
+      <div class="brand-static">
+        <span class="brand-mark"></span>
+        <span>Echo</span>
       </div>
+      <div class="landing-nav-actions">
+        <button type="button" id="landingThemeBtn" class="icon-btn" title="Сменить тему"></button>
+        <button type="button" id="landingOpenAppBtn" class="primary-btn compact-btn">Открыть тренажёр</button>
+      </div>
+    </header>
+
+    <main class="landing-main">
+      <section class="hero">
+        <div class="hero-eyebrow">8 языков · уровни A1–C1 · 240 уроков грамматики</div>
+        <h1 class="hero-title">Учите языки в <em>спокойном</em> живом ритме</h1>
+        <p class="hero-subtitle">
+          Голосовой ИИ-собеседник с мягким разбором ошибок, тексты для чтения с переводом по клику,
+          системная грамматика и личный словарь с карточками — в одном чистом пространстве.
+        </p>
+
+        <div id="landingResumeBar" class="resume-bar is-hidden"></div>
+
+        <div class="hero-cta">
+          <button type="button" id="landingStartBtn" class="primary-btn hero-btn">Начать практику →</button>
+          <button type="button" id="landingGrammarBtn" class="secondary-btn hero-btn">Открыть грамматику</button>
+        </div>
+      </section>
+
+      <section class="landing-block">
+        <div class="block-head">
+          <div>
+            <div class="block-kicker">Шаг 1</div>
+            <h2 class="block-title">Выберите язык и уровень</h2>
+          </div>
+          <div id="landingLevelPills" class="level-pills" role="group" aria-label="Уровень языка"></div>
+        </div>
+        <div id="landingLangGrid" class="lang-grid"></div>
+      </section>
+
+      <section class="landing-block">
+        <div class="block-head">
+          <div>
+            <div class="block-kicker">Шаг 2</div>
+            <h2 class="block-title">Четыре режима внутри Echo</h2>
+          </div>
+        </div>
+
+        <div class="feature-grid">
+          <button type="button" class="feature-card" data-enter-mode="chat">
+            <span class="feature-num">01</span>
+            <h3 class="feature-title">Голосовой диалог</h3>
+            <p class="feature-desc">Общайтесь голосом или текстом на живые темы. Echo отвечает репликой, озвучивает её и бережно поправляет ошибки.</p>
+            <span class="feature-link">Открыть диалог →</span>
+          </button>
+
+          <button type="button" class="feature-card" data-enter-mode="reading">
+            <span class="feature-num">02</span>
+            <h3 class="feature-title">Адаптивное чтение</h3>
+            <p class="feature-desc">Тексты под ваш уровень с озвучкой, переводом каждого предложения и мгновенным сохранением незнакомых слов по клику.</p>
+            <span class="feature-link">Читать тексты →</span>
+          </button>
+
+          <button type="button" class="feature-card" data-enter-mode="grammar">
+            <span class="feature-num">03</span>
+            <h3 class="feature-title">Грамматика A1–C1</h3>
+            <p class="feature-desc">240 структурированных уроков с формулами, частыми ошибками, практикой и возможностью задать ИИ любой уточняющий вопрос.</p>
+            <span class="feature-link">Перейти к урокам →</span>
+          </button>
+
+          <button type="button" class="feature-card" data-enter-mode="vocab">
+            <span class="feature-num">04</span>
+            <h3 class="feature-title">Словарь и карточки</h3>
+            <p class="feature-desc">Отдельный словарь для каждого языка. Повторяйте сохранённые слова и фразы в режиме интерактивных карточек с озвучкой.</p>
+            <span class="feature-link">Открыть словарь →</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="landing-footer">
+      <span>Echo · Языковая платформа</span>
+      <span>Прогресс и словарь сохраняются автоматически</span>
+    </footer>
+  </div>
+
+  <!-- ================= РАБОЧЕЕ ПРИЛОЖЕНИЕ ================= -->
+  <div id="appShell" class="app is-hidden">
+    <header class="header">
+      <div class="header-left">
+        <button type="button" id="brandHomeBtn" class="brand" title="На главную страницу">
+          <span class="brand-mark"></span>
+          <span>Echo</span>
+        </button>
+        <div id="statsPill" class="stats-pill" title="Ежедневная серия и опыт">
+          <span class="stats-streak">✦ 0 дн.</span>
+          <span class="stats-sep">·</span>
+          <span class="stats-xp">0 XP</span>
+        </div>
+      </div>
+
       <div class="controls">
         <select id="langSelect" title="Изучаемый язык"></select>
         <select id="levelSelect" title="Уровень"></select>
@@ -84,8 +184,9 @@
     <!-- Вкладка 3: Грамматика -->
     <section id="grammarView" class="view-pane">
       <div class="scroll-pane">
-        <div>
+        <div class="g-topics-panel">
           <div id="grammarTopicsLabel" class="g-section-label">Темы грамматики</div>
+          <div class="g-level-bar"><div id="grammarLevelBarFill" class="g-level-bar-fill"></div></div>
           <div id="grammarTopicsChips" class="g-topic-chips"></div>
         </div>
         <form id="grammarCustomForm" class="action-bar">
