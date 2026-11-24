@@ -1,5 +1,6 @@
 import { LANGUAGES, LEVELS, CHAT_TOPICS, GRAMMAR_TOPICS_BY_LANG } from './data.js';
-import { playNeuralSpeech, stopNeuralSpeech, setLivePlaybackRate, primeBrowserAudio } from './tts.js?v=3';
+import { playNeuralSpeech, stopNeuralSpeech, setLivePlaybackRate, primeBrowserAudio } from './tts.js?v=4';
+
 // --- DOM-элементы стартовой страницы и переключения ---
 const landingView = document.getElementById('landingView');
 const appShell = document.getElementById('appShell');
@@ -128,7 +129,6 @@ let animFrame = null;
 let timerInterval = null;
 let recStartTime = 0;
 
-let availableVoices = [];
 let activeVoiceBar = null;
 let activeReadingPlayBtn = null;
 
@@ -366,6 +366,7 @@ function renderLandingControls() {
 }
 
 function openApp(targetMode = 'chat') {
+  primeSpeech();
   isAppOpen = true;
   document.body.classList.remove('mode-landing');
   document.body.classList.add('mode-app');
@@ -1239,8 +1240,7 @@ function renderReadingArticle(data) {
     readingSpeed = readingSpeed === 1.0 ? 0.8 : 1.0;
     readSpeedBtn.textContent = readingSpeed.toFixed(1) + 'x';
     if (activeReadingPlayBtn === readAllPlayBtn) {
-      stopSpeech();
-      speakText(fullText, readingSpeed, null, readAllPlayBtn);
+      setLivePlaybackRate(readingSpeed);
     }
   });
 
@@ -1504,36 +1504,8 @@ manualAddForm.addEventListener('submit', (e) => {
   renderVocabList();
 });
 
-// --- Озвучка (TTS под выбранный язык) ---
-function loadVoices() {
-  if (!('speechSynthesis' in window)) return;
-  availableVoices = window.speechSynthesis.getVoices() || [];
-}
-
-if ('speechSynthesis' in window) {
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-}
-
-function getVoiceForCurrentLang() {
-  const lang = getCurrentLang();
-  const prefix = lang.code.toLowerCase();
-  const exact = lang.ttsLang.toLowerCase();
-  const matching = availableVoices.filter(v => v.lang && v.lang.toLowerCase().startsWith(prefix));
-  if (matching.length === 0) return null;
-
-  return (
-    matching.find(v => /google|microsoft|natural|online/i.test(v.name) && v.lang.toLowerCase() === exact) ||
-    matching.find(v => /google|natural|samantha|thomas|amélie|monica|anna|yuna|kyoko/i.test(v.name)) ||
-    matching.find(v => v.lang.toLowerCase() === exact) ||
-    matching[0]
-  );
-}
-
-function stopSpeech() {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-  }
+// --- Озвучка (нейросетевой TTS + автооткат на браузер) ---
+function resetSpeechUI() {
   if (activeVoiceBar) {
     activeVoiceBar.classList.remove('playing');
     const btn = activeVoiceBar.querySelector('.play-btn');
@@ -1547,8 +1519,13 @@ function stopSpeech() {
   }
 }
 
+function stopSpeech() {
+  stopNeuralSpeech();
+  resetSpeechUI();
+}
+
 function speakText(text, rate = 1.0, voiceBarEl = null, readingBtnEl = null) {
-  if (!('speechSynthesis' in window) || !text) return;
+  if (!text) return;
 
   if (voiceBarEl && activeVoiceBar === voiceBarEl) {
     stopSpeech();
@@ -1557,12 +1534,6 @@ function speakText(text, rate = 1.0, voiceBarEl = null, readingBtnEl = null) {
 
   stopSpeech();
   const lang = getCurrentLang();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = lang.ttsLang;
-  utter.rate = rate;
-
-  const voice = getVoiceForCurrentLang();
-  if (voice) utter.voice = voice;
 
   if (voiceBarEl) {
     activeVoiceBar = voiceBarEl;
@@ -1577,29 +1548,28 @@ function speakText(text, rate = 1.0, voiceBarEl = null, readingBtnEl = null) {
     readingBtnEl.textContent = '■ Остановить';
   }
 
-  utter.onend = () => {
-    if (voiceBarEl) {
-      voiceBarEl.classList.remove('playing');
-      const btn = voiceBarEl.querySelector('.play-btn');
-      if (btn) btn.innerHTML = playSvg();
+  playNeuralSpeech({
+    text,
+    lang,
+    rate,
+    onFinish: () => {
+      if (voiceBarEl) {
+        voiceBarEl.classList.remove('playing');
+        const btn = voiceBarEl.querySelector('.play-btn');
+        if (btn) btn.innerHTML = playSvg();
+      }
+      if (readingBtnEl) {
+        readingBtnEl.classList.remove('open');
+        readingBtnEl.textContent = '▶ Слушать текст';
+      }
+      if (activeVoiceBar === voiceBarEl) activeVoiceBar = null;
+      if (activeReadingPlayBtn === readingBtnEl) activeReadingPlayBtn = null;
     }
-    if (readingBtnEl) {
-      readingBtnEl.classList.remove('open');
-      readingBtnEl.textContent = '▶ Слушать текст';
-    }
-    if (activeVoiceBar === voiceBarEl) activeVoiceBar = null;
-    if (activeReadingPlayBtn === readingBtnEl) activeReadingPlayBtn = null;
-  };
-
-  utter.onerror = utter.onend;
-  window.speechSynthesis.speak(utter);
+  });
 }
 
 function primeSpeech() {
-  if ('speechSynthesis' in window) {
-    const silent = new SpeechSynthesisUtterance('');
-    window.speechSynthesis.speak(silent);
-  }
+  primeBrowserAudio();
 }
 
 // --- Вспомогательные функции ---
@@ -1729,8 +1699,7 @@ function renderAiMessage(replyTarget, replyRu) {
     currentRate = currentRate === 1.0 ? 0.8 : 1.0;
     speedBtn.textContent = currentRate.toFixed(1) + 'x';
     if (activeVoiceBar === voiceBar) {
-      stopSpeech();
-      speakText(replyTarget, currentRate, voiceBar);
+      setLivePlaybackRate(currentRate);
     }
   });
 
