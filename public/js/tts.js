@@ -1,10 +1,16 @@
-const AUDIO_CACHE_LIMIT = 80;
 const MAX_CHUNK_CHARS = 220;
+const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
-const audioCache = new Map();
+const sharedAudio = typeof Audio !== 'undefined' ? new Audio() : null;
+if (sharedAudio) {
+  sharedAudio.preload = 'auto';
+  sharedAudio.playsInline = true;
+  sharedAudio.setAttribute('playsinline', '');
+}
+
 let availableVoices = [];
-let currentAudio = null;
-let currentAbort = null;
+let audioUnlocked = false;
+let isPlayingNeural = false;
 let playSessionId = 0;
 
 function loadBrowserVoices() {
@@ -46,7 +52,6 @@ function splitIntoChunks(text) {
         chunks.push(buf);
         buf = '';
       }
-      // Разбиваем слишком длинное предложение по запятым или пробелам
       const parts = s.split(/(?<=[,;،、，])\s*/).filter(Boolean);
       let sub = '';
       for (const p of parts) {
@@ -73,70 +78,9 @@ function splitIntoChunks(text) {
   return chunks;
 }
 
-function getCachedUrl(key) {
-  if (!audioCache.has(key)) return null;
-  const val = audioCache.get(key);
-  audioCache.delete(key);
-  audioCache.set(key, val);
-  return val;
-}
-
-function setCachedUrl(key, url) {
-  audioCache.set(key, url);
-  while (audioCache.size > AUDIO_CACHE_LIMIT) {
-    const oldestKey = audioCache.keys().next().value;
-    const oldUrl = audioCache.get(oldestKey);
-    audioCache.delete(oldestKey);
-    try { URL.revokeObjectURL(oldUrl); } catch (_) {}
-  }
-}
-
-async function fetchAudioUrl(chunk, langCode, signal) {
-  const key = `${langCode}::${chunk}`;
-  const cached = getCachedUrl(key);
-  if (cached) return cached;
-
+function buildTtsUrl(chunk, langCode) {
   const qs = new URLSearchParams({ lang: langCode, text: chunk });
-  const res = await fetch(`/api/tts?${qs.toString()}`, { signal });
-  if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
-
-  const blob = await res.blob();
-  if (!blob || blob.size < 100) throw new Error('Empty audio');
-
-  const url = URL.createObjectURL(blob);
-  setCachedUrl(key, url);
-  return url;
-}
-
-function playAudioUrl(url, rate, sessionId) {
-  return new Promise((resolve, reject) => {
-    if (sessionId !== playSessionId) {
-      resolve('cancelled');
-      return;
-    }
-
-    const audio = new Audio(url);
-    audio.playbackRate = rate;
-    audio.preservesPitch = true;
-    currentAudio = audio;
-
-    audio.onended = () => {
-      if (currentAudio === audio) currentAudio = null;
-      resolve('ended');
-    };
-    audio.onerror = () => {
-      if (currentAudio === audio) currentAudio = null;
-      reject(new Error('Audio playback error'));
-    };
-
-    const playPromise = audio.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch((err) => {
-        if (currentAudio === audio) currentAudio = null;
-        reject(err);
-      });
-    }
-  });
+  return `/api/tts?${qs.toString()}`;
 }
 
 function speakWithBrowserFallback(text, lang, rate, sessionId, onFinish) {
@@ -163,38 +107,47 @@ function speakWithBrowserFallback(text, lang, rate, sessionId, onFinish) {
 
 export function stopNeuralSpeech() {
   playSessionId += 1;
+  isPlayingNeural = false;
 
-  if (currentAbort) {
-    currentAbort.abort();
-    currentAbort = null;
-  }
-  if (currentAudio) {
+  if (sharedAudio) {
+    sharedAudio.onplay = null;
+    sharedAudio.onended = null;
+    sharedAudio.onerror = null;
     try {
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
+      sharedAudio.pause();
     } catch (_) {}
-    currentAudio = null;
   }
+
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
 }
 
 export function setLivePlaybackRate(rate) {
-  if (currentAudio) {
-    currentAudio.playbackRate = rate;
+  if (sharedAudio) {
+    sharedAudio.defaultPlaybackRate = rate;
+    sharedAudio.playbackRate = rate;
   }
 }
 
 export function primeBrowserAudio() {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
-    } catch (_) {}
-  }
+  if (!sharedAudio || audioUnlocked || isPlayingNeural) return;
+  try {
+    sharedAudio.onplay = null;
+    sharedAudio.onended = null;
+    sharedAudio.onerror = null;
+    sharedAudio.src = SILENT_WAV;
+    const p = sharedAudio.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        if (!isPlayingNeural) sharedAudio.pause();
+        audioUnlocked = true;
+      }).catch(() => {});
+    }
+  } catch (_) {}
 }
 
-export async function playNeuralSpeech({ text, lang, rate = 1.0, onFinish = () => {} }) {
+export function playNeuralSpeech({ text, lang, rate = 1.0, onFinish = () => {} }) {
   stopNeuralSpeech();
 
   const chunks = splitIntoChunks(text);
@@ -204,37 +157,65 @@ export async function playNeuralSpeech({ text, lang, rate = 1.0, onFinish = () =
   }
 
   const sessionId = playSessionId;
-  const controller = new AbortController();
-  currentAbort = controller;
 
-  try {
-    let nextUrlPromise = fetchAudioUrl(chunks[0], lang.code, controller.signal);
+  if (!sharedAudio) {
+    speakWithBrowserFallback(text, lang, rate, sessionId, onFinish);
+    return;
+  }
 
-    for (let i = 0; i < chunks.length; i += 1) {
-      if (sessionId !== playSessionId) return;
-
-      const url = await nextUrlPromise;
-      if (sessionId !== playSessionId) return;
-
-      // Пока проигрывается текущее предложение — заранее подгружаем следующее
-      if (i + 1 < chunks.length) {
-        nextUrlPromise = fetchAudioUrl(chunks[i + 1], lang.code, controller.signal);
-      }
-
-      await playAudioUrl(url, rate, sessionId);
-    }
-
-    if (sessionId === playSessionId) onFinish();
-  } catch (err) {
-    if (sessionId !== playSessionId || err?.name === 'AbortError') return;
-
-    // Если браузер заблокировал автовоспроизведение до клика пользователя — просто снимаем статус без робота
-    if (err?.name === 'NotAllowedError') {
+  const playChunk = (index) => {
+    if (sessionId !== playSessionId) return;
+    if (index >= chunks.length) {
+      isPlayingNeural = false;
       onFinish();
       return;
     }
 
-    // Если сервер TTS недоступен — плавно откатываемся на встроенный голос браузера
-    speakWithBrowserFallback(text, lang, rate, sessionId, onFinish);
-  }
+    const url = buildTtsUrl(chunks[index], lang.code);
+    isPlayingNeural = true;
+
+    sharedAudio.onplay = () => {
+      if (sessionId !== playSessionId) return;
+      audioUnlocked = true;
+      sharedAudio.playbackRate = rate;
+    };
+
+    sharedAudio.onended = () => {
+      if (sessionId !== playSessionId) return;
+      playChunk(index + 1);
+    };
+
+    sharedAudio.onerror = () => {
+      if (sessionId !== playSessionId) return;
+      isPlayingNeural = false;
+      speakWithBrowserFallback(chunks.slice(index).join(' '), lang, rate, sessionId, onFinish);
+    };
+
+    sharedAudio.src = url;
+    sharedAudio.defaultPlaybackRate = rate;
+    sharedAudio.playbackRate = rate;
+
+    // Прогреваем следующее предложение в кэше CDN/браузера, пока играет текущее
+    if (index + 1 < chunks.length) {
+      fetch(buildTtsUrl(chunks[index + 1], lang.code)).catch(() => {});
+    }
+
+    const playPromise = sharedAudio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch((err) => {
+        if (sessionId !== playSessionId) return;
+        isPlayingNeural = false;
+
+        // Если мобильный браузер заблокировал автоозвучку до первого тапа — просто снимаем статус
+        if (err?.name === 'AbortError' || err?.name === 'NotAllowedError') {
+          onFinish();
+          return;
+        }
+
+        speakWithBrowserFallback(chunks.slice(index).join(' '), lang, rate, sessionId, onFinish);
+      });
+    }
+  };
+
+  playChunk(0);
 }
