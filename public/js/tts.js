@@ -1,6 +1,8 @@
+const AUDIO_CACHE_LIMIT = 80;
 const MAX_CHUNK_CHARS = 220;
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
+const audioCache = new Map();
 const sharedAudio = typeof Audio !== 'undefined' ? new Audio() : null;
 if (sharedAudio) {
   sharedAudio.preload = 'auto';
@@ -11,6 +13,7 @@ if (sharedAudio) {
 let availableVoices = [];
 let audioUnlocked = false;
 let isPlayingNeural = false;
+let currentAbort = null;
 let playSessionId = 0;
 
 function loadBrowserVoices() {
@@ -21,6 +24,46 @@ function loadBrowserVoices() {
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   loadBrowserVoices();
   window.speechSynthesis.onvoiceschanged = loadBrowserVoices;
+}
+
+// Разблокируем единый <audio>-элемент при первом касании экрана на телефоне
+function unlockSharedAudioSync() {
+  if (!sharedAudio || audioUnlocked || isPlayingNeural) return;
+  try {
+    sharedAudio.onplay = null;
+    sharedAudio.onended = null;
+    sharedAudio.onerror = null;
+    sharedAudio.src = SILENT_WAV;
+    const p = sharedAudio.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        audioUnlocked = true;
+      }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+if (typeof window !== 'undefined') {
+  const onFirstGesture = () => {
+    unlockSharedAudioSync();
+    if (audioUnlocked) {
+      window.removeEventListener('touchstart', onFirstGesture);
+      window.removeEventListener('pointerdown', onFirstGesture);
+      window.removeEventListener('click', onFirstGesture);
+    }
+  };
+  window.addEventListener('touchstart', onFirstGesture, { passive: true });
+  window.addEventListener('pointerdown', onFirstGesture, { passive: true });
+  window.addEventListener('click', onFirstGesture, { passive: true });
+}
+
+function notifyFallback(reason) {
+  const toastEl = typeof document !== 'undefined' ? document.getElementById('toast') : null;
+  if (!toastEl) return;
+  toastEl.textContent = `Включён голос устройства (${reason})`;
+  toastEl.classList.add('show');
+  clearTimeout(notifyFallback._t);
+  notifyFallback._t = setTimeout(() => toastEl.classList.remove('show'), 2500);
 }
 
 function getBrowserVoice(lang) {
@@ -78,9 +121,84 @@ function splitIntoChunks(text) {
   return chunks;
 }
 
-function buildTtsUrl(chunk, langCode) {
+function getCachedUrl(key) {
+  if (!audioCache.has(key)) return null;
+  const val = audioCache.get(key);
+  audioCache.delete(key);
+  audioCache.set(key, val);
+  return val;
+}
+
+function setCachedUrl(key, url) {
+  audioCache.set(key, url);
+  while (audioCache.size > AUDIO_CACHE_LIMIT) {
+    const oldestKey = audioCache.keys().next().value;
+    const oldUrl = audioCache.get(oldestKey);
+    audioCache.delete(oldestKey);
+    if (oldUrl !== sharedAudio?.src) {
+      try { URL.revokeObjectURL(oldUrl); } catch (_) {}
+    }
+  }
+}
+
+async function fetchAudioBlobUrl(chunk, langCode, signal) {
+  const key = `${langCode}::${chunk}`;
+  const cached = getCachedUrl(key);
+  if (cached) return cached;
+
   const qs = new URLSearchParams({ lang: langCode, text: chunk });
-  return `/api/tts?${qs.toString()}`;
+  const res = await fetch(`/api/tts?${qs.toString()}`, { signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const blob = await res.blob();
+  if (!blob || blob.size < 100) throw new Error('пустой файл');
+
+  const url = URL.createObjectURL(blob);
+  setCachedUrl(key, url);
+  return url;
+}
+
+function playBlobOnSharedAudio(blobUrl, rate, sessionId) {
+  return new Promise((resolve, reject) => {
+    if (sessionId !== playSessionId || !sharedAudio) {
+      resolve('cancelled');
+      return;
+    }
+
+    isPlayingNeural = true;
+
+    sharedAudio.onplay = () => {
+      if (sessionId !== playSessionId) return;
+      audioUnlocked = true;
+      sharedAudio.playbackRate = rate;
+    };
+
+    sharedAudio.onended = () => {
+      if (sessionId !== playSessionId) return;
+      isPlayingNeural = false;
+      resolve('ended');
+    };
+
+    sharedAudio.onerror = () => {
+      if (sessionId !== playSessionId) return;
+      isPlayingNeural = false;
+      reject(new Error('ошибка плеера'));
+    };
+
+    sharedAudio.src = blobUrl;
+    sharedAudio.load();
+    sharedAudio.defaultPlaybackRate = rate;
+    sharedAudio.playbackRate = rate;
+
+    const p = sharedAudio.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => {
+        if (sessionId !== playSessionId) return;
+        isPlayingNeural = false;
+        reject(err);
+      });
+    }
+  });
 }
 
 function speakWithBrowserFallback(text, lang, rate, sessionId, onFinish) {
@@ -109,6 +227,11 @@ export function stopNeuralSpeech() {
   playSessionId += 1;
   isPlayingNeural = false;
 
+  if (currentAbort) {
+    currentAbort.abort();
+    currentAbort = null;
+  }
+
   if (sharedAudio) {
     sharedAudio.onplay = null;
     sharedAudio.onended = null;
@@ -131,23 +254,10 @@ export function setLivePlaybackRate(rate) {
 }
 
 export function primeBrowserAudio() {
-  if (!sharedAudio || audioUnlocked || isPlayingNeural) return;
-  try {
-    sharedAudio.onplay = null;
-    sharedAudio.onended = null;
-    sharedAudio.onerror = null;
-    sharedAudio.src = SILENT_WAV;
-    const p = sharedAudio.play();
-    if (p && typeof p.then === 'function') {
-      p.then(() => {
-        if (!isPlayingNeural) sharedAudio.pause();
-        audioUnlocked = true;
-      }).catch(() => {});
-    }
-  } catch (_) {}
+  unlockSharedAudioSync();
 }
 
-export function playNeuralSpeech({ text, lang, rate = 1.0, onFinish = () => {} }) {
+export async function playNeuralSpeech({ text, lang, rate = 1.0, onFinish = () => {} }) {
   stopNeuralSpeech();
 
   const chunks = splitIntoChunks(text);
@@ -163,59 +273,41 @@ export function playNeuralSpeech({ text, lang, rate = 1.0, onFinish = () => {} }
     return;
   }
 
-  const playChunk = (index) => {
-    if (sessionId !== playSessionId) return;
-    if (index >= chunks.length) {
-      isPlayingNeural = false;
+  // Синхронно разблокируем <audio> прямо в момент клика, ДО сетевого fetch()
+  const firstKey = `${lang.code}::${chunks[0]}`;
+  if (!getCachedUrl(firstKey) && !audioUnlocked) {
+    unlockSharedAudioSync();
+  }
+
+  const controller = new AbortController();
+  currentAbort = controller;
+
+  try {
+    let nextUrlPromise = fetchAudioBlobUrl(chunks[0], lang.code, controller.signal);
+
+    for (let i = 0; i < chunks.length; i += 1) {
+      if (sessionId !== playSessionId) return;
+
+      const blobUrl = await nextUrlPromise;
+      if (sessionId !== playSessionId) return;
+
+      if (i + 1 < chunks.length) {
+        nextUrlPromise = fetchAudioBlobUrl(chunks[i + 1], lang.code, controller.signal);
+      }
+
+      await playBlobOnSharedAudio(blobUrl, rate, sessionId);
+    }
+
+    if (sessionId === playSessionId) onFinish();
+  } catch (err) {
+    if (sessionId !== playSessionId || err?.name === 'AbortError') return;
+
+    if (err?.name === 'NotAllowedError') {
       onFinish();
       return;
     }
 
-    const url = buildTtsUrl(chunks[index], lang.code);
-    isPlayingNeural = true;
-
-    sharedAudio.onplay = () => {
-      if (sessionId !== playSessionId) return;
-      audioUnlocked = true;
-      sharedAudio.playbackRate = rate;
-    };
-
-    sharedAudio.onended = () => {
-      if (sessionId !== playSessionId) return;
-      playChunk(index + 1);
-    };
-
-    sharedAudio.onerror = () => {
-      if (sessionId !== playSessionId) return;
-      isPlayingNeural = false;
-      speakWithBrowserFallback(chunks.slice(index).join(' '), lang, rate, sessionId, onFinish);
-    };
-
-    sharedAudio.src = url;
-    sharedAudio.defaultPlaybackRate = rate;
-    sharedAudio.playbackRate = rate;
-
-    // Прогреваем следующее предложение в кэше CDN/браузера, пока играет текущее
-    if (index + 1 < chunks.length) {
-      fetch(buildTtsUrl(chunks[index + 1], lang.code)).catch(() => {});
-    }
-
-    const playPromise = sharedAudio.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch((err) => {
-        if (sessionId !== playSessionId) return;
-        isPlayingNeural = false;
-
-        // Если мобильный браузер заблокировал автоозвучку до первого тапа — просто снимаем статус
-        if (err?.name === 'AbortError' || err?.name === 'NotAllowedError') {
-          onFinish();
-          return;
-        }
-
-        speakWithBrowserFallback(chunks.slice(index).join(' '), lang, rate, sessionId, onFinish);
-      });
-    }
-  };
-
-  playChunk(0);
+    notifyFallback(err?.message || 'сеть');
+    speakWithBrowserFallback(text, lang, rate, sessionId, onFinish);
+  }
 }
