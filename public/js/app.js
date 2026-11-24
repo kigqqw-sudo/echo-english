@@ -1,5 +1,5 @@
 import { LANGUAGES, LEVELS, CHAT_TOPICS, GRAMMAR_TOPICS_BY_LANG } from './data.js';
-import { playNeuralSpeech, stopNeuralSpeech, setLivePlaybackRate, primeBrowserAudio } from './tts.js';
+import { playNeuralSpeech, stopNeuralSpeech, setLivePlaybackRate, primeBrowserAudio } from './tts.js?v=3';
 // --- DOM-элементы стартовой страницы и переключения ---
 const landingView = document.getElementById('landingView');
 const appShell = document.getElementById('appShell');
