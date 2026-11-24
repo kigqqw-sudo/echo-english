@@ -130,7 +130,6 @@ export default async function handler(req, res) {
   try {
     let audioBuffer = null;
 
-    // 1. Если задан ключ коммерческого TTS (OpenAI / ProxyAPI) — используем его
     if (process.env.TTS_API_KEY || process.env.OPENAI_API_KEY) {
       try {
         audioBuffer = await synthesizeOpenAI(text);
@@ -139,14 +138,34 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Основной бесплатный провайдер — Microsoft Neural Voices
     if (!audioBuffer) {
       audioBuffer = await synthesizeEdge(text, lang);
     }
 
+    const total = audioBuffer.length;
+    const rangeHeader = req.headers.range;
+
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', String(audioBuffer.length));
-    // Кэшируем аудио на CDN Vercel на 30 дней и в браузере на сутки
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (rangeHeader) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader).trim());
+      if (match) {
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? Math.min(parseInt(match[2], 10), total - 1) : total - 1;
+
+        if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end && start < total) {
+          const slice = audioBuffer.subarray(start, end + 1);
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+          res.setHeader('Content-Length', String(slice.length));
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          res.status(206).send(slice);
+          return;
+        }
+      }
+    }
+
+    res.setHeader('Content-Length', String(total));
     res.setHeader('Cache-Control', 'public, s-maxage=2592000, max-age=86400, stale-while-revalidate=86400');
     res.status(200).send(audioBuffer);
   } catch (err) {
